@@ -1,0 +1,113 @@
+---
+title: 'Permissions and Roles System in Mikoto'
+description: 'Understand how Mikoto role-based permissions work, the available permission flags, how they combine, and which permissions each operation requires.'
+---
+
+Mikoto uses a role-based permission system built on bitfield flags. Every role in a space carries a 64-bit integer whose set bits represent the permissions that role grants. When the server checks whether a member may perform an action, it collects the permissions from all of the member's roles using a bitwise OR, then evaluates the result against the required flag. Space owners bypass all permission checks unconditionally.
+
+## Permission flags
+
+The following flags are defined in the server's permission system. Each flag occupies one bit of the 64-bit permissions integer stored on a role.
+
+| Flag | Bit | Description |
+|---|---|---|
+| `NONE` | `0` | No permissions. |
+| `ADMIN` | `1 << 0` | Bypasses all other permission checks (admin override). |
+| `MODERATOR` | `1 << 1` | Bypasses certain moderation checks (e.g., deleting others' messages). |
+| `MANAGE_SPACE` | `1 << 2` | Edit the space name, icon, handle, or visibility. |
+| `MANAGE_CHANNELS` | `1 << 3` | Create, edit, or delete channels. |
+| `MANAGE_ROLES` | `1 << 4` | Create, edit, or delete roles. |
+| `ASSIGN_ROLES` | `1 << 5` | Add or remove roles from members. |
+| `MANAGE_MEMBER_PROFILES` | `1 << 6` | Edit member profile information. |
+| `MANAGE_INVITES` | `1 << 7` | Create or revoke invite links. |
+| `MANAGE_EMOJIS` | `1 << 8` | Add or remove custom emojis in the space. |
+| `MANAGE_MESSAGES` | `1 << 9` | Delete any member's messages (moderator action). |
+| `MANAGE_BOTS` | `1 << 10` | Add bots to the space. |
+| `BAN` | `1 << 11` | Kick or ban members. |
+
+## How permissions are evaluated
+
+<Steps>
+  <Step title="Collect role permissions">
+    The server fetches all roles assigned to the member and reads the `permissions` field from each. Each value is a decimal string representing a 64-bit integer (e.g., `"12"` for `MANAGE_SPACE | MANAGE_CHANNELS`).
+  </Step>
+
+  <Step title="Combine with bitwise OR">
+    All role permission values are combined with a bitwise OR. The resulting integer represents the full set of permissions the member holds.
+  </Step>
+
+  <Step title="Check the required flag">
+    The server tests whether the combined permissions integer contains the required flag using `contains()`. If not present, the request is rejected with a `403 Forbidden` response and an `InsufficientPermissions` error.
+  </Step>
+</Steps>
+
+## Bypass rules
+
+The API uses three permission-checking functions internally. Each applies a different bypass:
+
+| Function | Bypass |
+|---|---|
+| `permissions` | Space owners only. |
+| `permissions_or_admin` | Space owners **and** members with `ADMIN`. |
+| `permissions_or_moderator` | Space owners **and** members with `ADMIN` or `MODERATOR`. |
+
+**Space owners** (the `owner_id` field on a space) bypass every permission check regardless of their assigned roles.
+
+## Permissions by operation
+
+The table below maps API operations to the permission required to perform them.
+
+| Operation | Required permission | Bypass |
+|---|---|---|
+| Update space (name, icon, handle, visibility) | `MANAGE_SPACE` | `ADMIN` |
+| Verify custom domain handle | `MANAGE_SPACE` | `ADMIN` |
+| Create channel | `MANAGE_CHANNELS` | `ADMIN` |
+| Update channel | `MANAGE_CHANNELS` | `ADMIN` |
+| Delete channel | `MANAGE_CHANNELS` | `ADMIN` |
+| Create role | `MANAGE_ROLES` | `ADMIN` |
+| Update role | `MANAGE_ROLES` | `ADMIN` |
+| Delete role | `MANAGE_ROLES` | `ADMIN` |
+| Add role to member | `ASSIGN_ROLES` | `ADMIN` |
+| Remove role from member | `ASSIGN_ROLES` | `ADMIN` |
+| Delete another member's message | `MANAGE_MESSAGES` | `ADMIN`, `MODERATOR` |
+| Add bot to space (via members endpoint) | `MANAGE_BOTS` | `ADMIN` |
+| Kick a member | `BAN` | `ADMIN` |
+
+<Note>
+  Members can always delete their own messages and edit their own messages without any special permission. The `MANAGE_MESSAGES` permission is only needed to moderate other members' content.
+</Note>
+
+## Role permissions integer format
+
+Role permissions are stored and returned as a **decimal string** representing the 64-bit integer. To grant `MANAGE_CHANNELS` (bit 3, value 8) and `MANAGE_ROLES` (bit 4, value 16) to a role, set its `permissions` field to `"24"`.
+
+```json
+{
+  "id": "...",
+  "spaceId": "...",
+  "name": "Moderator",
+  "permissions": "2050"
+}
+```
+
+In this example `2050` = `MODERATOR (2) | MANAGE_MESSAGES (2048)`, giving the role the ability to delete any member's messages.
+
+## Practical examples
+
+<AccordionGroup>
+  <Accordion title="Creating a Moderator role">
+    Set `permissions` to `"2050"` (`MODERATOR | MANAGE_MESSAGES`) when creating or updating a role. Members with this role can delete any message and have moderator-level bypasses.
+  </Accordion>
+
+  <Accordion title="Creating an Admin role">
+    Set `permissions` to `"1"` (`ADMIN`). Members with this role bypass all permission checks in the space, equivalent to the space owner for most operations.
+  </Accordion>
+
+  <Accordion title="Creating a Channel Manager role">
+    Set `permissions` to `"24"` (`MANAGE_CHANNELS | MANAGE_ROLES`) to allow a role to create, edit, and delete channels and roles without full admin access.
+  </Accordion>
+
+  <Accordion title="Read-only member (default)">
+    A new role starts with `permissions` set to `"0"` (`NONE`). Members with only this role can read content and send messages, but cannot perform any moderation or management actions.
+  </Accordion>
+</AccordionGroup>

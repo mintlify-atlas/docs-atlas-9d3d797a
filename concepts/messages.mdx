@@ -1,0 +1,136 @@
+---
+title: 'Messages: content sent in channels and DMs'
+description: 'Messages are the core content unit in Mikoto, sent in space text channels or DM channels. They support file attachments and cursor-based pagination.'
+---
+
+Messages are how members communicate in Mikoto. A message is created inside a text channel — either a space channel or a direct-message channel — and carries a text body, an optional author reference, and zero or more file attachments. Messages are stored persistently and retrieved in reverse-chronological order through cursor-based pagination.
+
+## Message properties
+
+The `MessageExt` object returned by the API composes a base `Message` with its resolved author and attachments:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Unique identifier for the message. |
+| `channelId` | `string` (UUID) | The channel this message was sent in. |
+| `authorId` | `string \| null` | UUID of the user who sent the message. `null` for system messages. |
+| `content` | `string` | The text body of the message. |
+| `timestamp` | `string` | ISO-8601 creation timestamp. |
+| `editedTimestamp` | `string \| null` | ISO-8601 timestamp of the last edit, or `null` if never edited. |
+| `author` | `User \| null` | Resolved author object (included in `MessageExt`). |
+| `attachments` | `MessageAttachment[]` | List of file attachments (may be empty). |
+
+## Space channels vs DM channels
+
+The `MikotoMessage` class and `MessageManager` handle both space channels and DM channels transparently. The correct API endpoint is chosen based on whether the parent channel has a `spaceId`:
+
+```typescript
+// Works for both space channels and DM channels
+await channel.sendMessage('Hello, world!');
+await channel.listMessages(50, null);
+```
+
+Internally, messages in space channels route to `messages.create` / `messages.list`, while DM channel messages route to `dm.messages.create` / `dm.messages.list`.
+
+## Sending a message
+
+```typescript
+await channel.sendMessage('Hello, world!');
+
+// With attachments
+await channel.sendMessage('Here is the file:', [
+  {
+    url: 'https://cdn.example.com/file.pdf',
+    filename: 'report.pdf',
+    contentType: 'application/pdf',
+    size: 204800,
+  },
+]);
+```
+
+The `MessageSendPayload` fields:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `content` | `string` | Yes | Text body of the message. |
+| `attachments` | `MessageAttachmentInput[]` | No | Array of attachment descriptors (default: empty). |
+
+## Editing a message
+
+Only the message author can edit their own messages.
+
+```typescript
+await message.edit('Updated content here.');
+```
+
+Editing sets `editedTimestamp` to the current time. Clients can use this field to show an "edited" indicator.
+
+## Deleting a message
+
+Authors can delete their own messages. Members with the `MANAGE_MESSAGES` permission (or moderator/admin roles) can delete any message in the space.
+
+```typescript
+await message.delete();
+```
+
+When a message is deleted, a `messages.onDelete` WebSocket event is emitted carrying a `MessageKey` (containing `messageId` and `channelId`) rather than the full message object.
+
+## Attachments
+
+Each attachment in `MessageExt.attachments` is a `MessageAttachment` with these fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Unique identifier for the attachment. |
+| `messageId` | `string` (UUID) | The message this attachment belongs to. |
+| `url` | `string` | Public URL of the uploaded file. |
+| `filename` | `string` | Original filename (e.g. `screenshot.png`). |
+| `contentType` | `string` | MIME type (e.g. `image/png`, `application/pdf`). |
+| `size` | `number` | File size in bytes. |
+| `order` | `number` | Display order within the message's attachment list. |
+
+<Note>
+Files are hosted on Mikoto's S3-compatible object storage (MinIO). Upload the file first to obtain a `url`, then include it in the message payload.
+</Note>
+
+## Cursor-based pagination
+
+Message lists are paginated in reverse-chronological order (newest first, then reversed before returning so the client receives oldest-first within the page). Use the `cursor` parameter to page through history:
+
+```typescript
+// First page — most recent 50 messages
+const page1 = await channel.listMessages(50, null);
+
+// Next page — messages before the oldest message in page1
+const oldest = page1[0];
+const page2 = await channel.listMessages(50, oldest.id);
+```
+
+The `cursor` is the UUID of a known message. The server looks up that message's `timestamp` and returns messages with an earlier timestamp. The `limit` clamps between 1 and 100 (default: 50).
+
+```typescript
+// Using MessageManager directly
+const manager = new MessageManager(channel);
+const messages = await manager.list({ limit: 25, cursor: someMessageId });
+```
+
+## Real-time events
+
+The WebSocket layer emits three message events:
+
+| Event | Payload | Description |
+|---|---|---|
+| `messages.onCreate` | `MessageExt` | A new message was sent. |
+| `messages.onUpdate` | `MessageExt` | A message was edited. |
+| `messages.onDelete` | `MessageKey` | A message was deleted (`messageId` + `channelId`). |
+
+## Related concepts
+
+<CardGroup cols={2}>
+  <Card title="Channels" icon="hash" href="/concepts/channels">
+    Text channels that hold message history.
+  </Card>
+  <Card title="Members & roles" icon="users" href="/concepts/members-roles">
+    The `MANAGE_MESSAGES` permission controls who can delete others' messages.
+  </Card>
+</CardGroup>

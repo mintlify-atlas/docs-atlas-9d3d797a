@@ -1,0 +1,88 @@
+---
+title: "Bot Development on Mikoto: An Overview"
+description: "Learn what Mikoto bots are, how they differ from regular users, what capabilities they have, and which official SDKs are available to build them."
+---
+
+Mikoto bots are automated accounts that connect to the platform just like a human user, but authenticate with a dedicated bot token instead of a user password. They receive the same real-time WebSocket events as any other client, which means a bot can react to new messages, monitor channel changes, and take actions in spaces — all without human interaction.
+
+## What are bots?
+
+A bot is a special type of Mikoto user whose identity is backed by a `Bot` record rather than a human account. When a bot connects, it authenticates via its `botId` and a secret `token`, exchanging them for a short-lived JWT access token. After that, the bot behaves identically to any other connected client: it subscribes to WebSocket events, calls REST endpoints, and maintains reactive state through the SDK managers.
+
+Bots are ideal for:
+
+- Responding to messages with commands or automated replies
+- Moderating spaces (creating, editing, or deleting channels)
+- Posting notifications or updates from external systems
+- Building interactive experiences inside Mikoto spaces
+
+## Bots vs. regular users
+
+The key difference is in how authentication works. A regular user logs in with `AuthClient` using an email, password, and a rotating refresh token. A bot uses `BotAuthClient`, a subclass of `AuthClient` that overrides the `refresh()` method to exchange a static `botId` + `token` pair for an access token on every refresh cycle — no refresh token rotation required.
+
+```typescript
+// Regular user auth
+const auth = new AuthClient({
+  url: 'https://server.alpha.mikoto.io',
+  refreshToken: () => localStorage.getItem('refreshToken') ?? '',
+});
+
+// Bot auth — simpler, no refresh token storage needed
+const auth = new BotAuthClient({
+  url: 'https://server.alpha.mikoto.io',
+  botId: process.env.BOT_ID!,
+  token: process.env.BOT_TOKEN!,
+});
+```
+
+## Bot capabilities
+
+Once connected, a bot has access to the same managers as any other `MikotoClient` instance:
+
+| Capability | API surface |
+|---|---|
+| Read and send messages | `MikotoChannel.sendMessage()`, `MikotoChannel.listMessages()` |
+| Manage channels | `MikotoChannel.edit()`, `MikotoChannel.delete()`, `MikotoSpace.createChannel()` |
+| Manage spaces | `MikotoSpace.edit()`, `MikotoSpace.delete()`, `MikotoSpace.leave()` |
+| React to real-time events | `client.ws.on('messages.onCreate', ...)` and all other WebSocket events |
+| Read collaborative documents | `MikotoChannel.getDocument()` |
+
+## Creating a bot
+
+Bots are created through the API by an authenticated user account. Send a `POST` request to `/bots` with a `name` field. The response includes the bot's `id` and a one-time plaintext `token` — store this token securely, as it cannot be retrieved again. You can regenerate the token later via `POST /bots/:botId/regenerate-token`.
+
+```bash
+# Create a bot (requires a user access token)
+curl -X POST https://server.alpha.mikoto.io/bots \
+  -H "Authorization: Bearer <user_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My Bot"}'
+```
+
+```json
+{
+  "id": "01234567-...",
+  "name": "My Bot",
+  "ownerId": "...",
+  "token": "abc123..."
+}
+```
+
+## Available SDKs
+
+Mikoto provides official SDKs for TypeScript/Node.js and Python.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/bots/quickstart">
+    Build and run your first bot in five minutes using mikoto.js.
+  </Card>
+  <Card title="mikoto.js" icon="js" href="/bots/mikoto-js">
+    Full API reference for the official TypeScript/Node.js SDK.
+  </Card>
+  <Card title="mikoto.py" icon="python" href="/bots/mikoto-py">
+    Python SDK reference and examples using mikoto.py.
+  </Card>
+  <Card title="Events Reference" icon="bolt" href="/bots/events">
+    Complete list of WebSocket events your bot can subscribe to.
+  </Card>
+</CardGroup>

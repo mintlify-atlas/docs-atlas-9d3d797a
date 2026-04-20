@@ -1,0 +1,166 @@
+---
+title: 'Authentication and Authorization in Mikoto'
+description: 'Learn how to obtain JWT access tokens for users and bots, attach them to API requests with Bearer auth, and refresh them when they expire.'
+---
+
+Mikoto uses JSON Web Tokens (JWTs) for authentication. Every request to a protected API endpoint—whether REST or WebSocket—must carry a short-lived **access token** issued by the Superego API server. Users obtain tokens through an email/password login flow that also returns a long-lived **refresh token**; bots exchange a bot ID and secret for an access-only token. Both token types are sent as a standard `Authorization: Bearer` header.
+
+## User authentication
+
+<Steps>
+  <Step title="Login with email and password">
+    Send a `POST` request to `/account/login` with your email and password. On success you receive both an `accessToken` and a `refreshToken`.
+
+    <CodeGroup>
+    ```bash curl
+    curl -X POST https://your-server/account/login \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "misaka.mikoto@tokiwadai.ac.jp",
+        "password": "correcthorsebatterystaple"
+      }'
+    ```
+
+    ```typescript mikoto.js
+    import { AuthClient } from '@mikoto-io/mikoto.js';
+
+    const auth = new AuthClient({ url: 'https://your-server' });
+    const tokens = await auth.login({
+      email: 'misaka.mikoto@tokiwadai.ac.jp',
+      password: 'correcthorsebatterystaple',
+    });
+    // tokens.accessToken — short-lived JWT
+    // tokens.refreshToken — long-lived rotation token
+    ```
+    </CodeGroup>
+
+    **Response**
+
+    ```json
+    {
+      "accessToken": "eyJ...",
+      "refreshToken": "abc123..."
+    }
+    ```
+
+    <Note>
+      `TokenPair` fields use camelCase (`accessToken`, `refreshToken`) in JSON responses.
+    </Note>
+  </Step>
+
+  <Step title="Attach the token to requests">
+    Include the `accessToken` in the `Authorization` header of every subsequent API request.
+
+    ```bash
+    curl https://your-server/spaces \
+      -H "Authorization: Bearer eyJ..."
+    ```
+  </Step>
+</Steps>
+
+## Bot authentication
+
+Bots authenticate with a bot ID and a secret token instead of email/password. The response contains only an `accessToken`—bots do not receive a refresh token. The `BotAuthClient` in mikoto.js handles re-authentication automatically by calling `/bots/login` whenever a new token is needed.
+
+<Steps>
+  <Step title="Login as a bot">
+    <CodeGroup>
+    ```bash curl
+    curl -X POST https://your-server/bots/login \
+      -H "Content-Type: application/json" \
+      -d '{
+        "botId": "550e8400-e29b-41d4-a716-446655440000",
+        "token": "your-bot-secret-token"
+      }'
+    ```
+
+    ```typescript mikoto.js
+    import { BotAuthClient, MikotoClient } from '@mikoto-io/mikoto.js';
+
+    const auth = new BotAuthClient({
+      url: 'https://your-server',
+      botId: '550e8400-e29b-41d4-a716-446655440000',
+      token: 'your-bot-secret-token',
+    });
+
+    // BotAuthClient refreshes the access token automatically
+    const client = new MikotoClient({ auth, url: 'https://your-server' });
+    ```
+    </CodeGroup>
+
+    **Response**
+
+    ```json
+    {
+      "accessToken": "eyJ...",
+      "refreshToken": null
+    }
+    ```
+
+    <Note>
+      Bot tokens return `null` for `refreshToken`. Re-authenticate by calling `POST /bots/login` again with your bot credentials.
+    </Note>
+  </Step>
+
+  <Step title="Attach the token to requests">
+    Use the returned `accessToken` in the `Authorization` header, exactly the same as for user tokens.
+
+    ```bash
+    curl https://your-server/spaces \
+      -H "Authorization: Bearer eyJ..."
+    ```
+  </Step>
+</Steps>
+
+## Refreshing an access token
+
+Access tokens are short-lived. When one expires, exchange your `refreshToken` for a new pair. The server rotates the refresh token on every use—store the new `refreshToken` immediately and discard the old one.
+
+<CodeGroup>
+```bash curl
+curl -X POST https://your-server/account/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "abc123..."}'
+```
+
+```typescript mikoto.js
+// AuthClient calls this automatically when a new token is needed
+const newAccessToken = await auth.refresh();
+```
+</CodeGroup>
+
+**Response**
+
+```json
+{
+  "accessToken": "eyJ...",
+  "refreshToken": "xyz789..."
+}
+```
+
+<Note>
+  The `AuthClient` in mikoto.js deduplicates concurrent refresh calls. If multiple parts of your app try to refresh at the same time, only one network request is made.
+</Note>
+
+## Using access tokens
+
+Attach the token to every request using the standard HTTP `Authorization` header:
+
+```
+Authorization: Bearer <accessToken>
+```
+
+The same token is also used to authenticate the WebSocket connection. See [WebSocket API](/developer/websocket) for details.
+
+## Common errors
+
+| Error | HTTP status | Cause |
+|---|---|---|
+| `WrongPassword` | 401 | Email not found or password does not match. |
+| `Unauthorized` | 401 | Access token is missing, malformed, or expired. |
+| `TokenExpired` | 401 | The refresh token has passed its expiry date. |
+| `Unauthorized: Invalid refresh token` | 401 | The refresh token is not recognized (e.g., already rotated). |
+
+<Warning>
+  Refresh tokens are **single-use**. Each call to `/account/refresh` invalidates the token you sent and issues a new one. If two requests are made with the same refresh token only one will succeed; the other will receive a 401 error.
+</Warning>

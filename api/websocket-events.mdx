@@ -1,0 +1,269 @@
+---
+title: 'WebSocket Events Reference — Real-Time Mikoto API'
+description: 'Real-time event reference for the Mikoto WebSocket connection. Covers connection setup, client commands, and all server-sent events with payload shapes.'
+---
+
+Mikoto uses a single persistent WebSocket connection for all real-time updates — new messages, channel changes, typing indicators, and more. The connection multiplexes many event streams through a single socket using a simple JSON envelope format.
+
+## Connecting
+
+Connect to the WebSocket endpoint:
+
+```
+wss://api.mikoto.io/ws
+```
+
+For self-hosted deployments, replace the host with your API server URL.
+
+### Authentication
+
+After the connection opens, send an `authenticate` message with your access token as the very first message:
+
+```json
+{
+  "op": "authenticate",
+  "data": { "token": "<access_token>" }
+}
+```
+
+The server uses this token to identify you and set up subscriptions to your spaces and DM channels. There is no explicit acknowledgement — the server begins emitting events as soon as authentication completes.
+
+<Warning>
+The token must be sent as the first message after opening the connection. Sending it as a URL query parameter is not supported.
+</Warning>
+
+## Message format
+
+Every message (both client→server and server→client) uses this envelope:
+
+```json
+{
+  "op": "<event_or_command_name>",
+  "data": { ... }
+}
+```
+
+- `op` — the operation name (string)
+- `data` — the event payload (object)
+
+## Client commands
+
+Commands are messages sent from your client to the server.
+
+| Command | Description |
+| ------- | ----------- |
+| `ping` | Ping the server. The server replies with a `pong` event. |
+| `typing.start` | Notify other members that you are typing in a channel. |
+
+### ping
+
+Send a ping to verify the connection is alive.
+
+```json
+{
+  "op": "ping",
+  "data": { "message": "hello" }
+}
+```
+
+<ResponseField name="message" type="string" required>
+  Arbitrary string echoed back in the `pong` response.
+</ResponseField>
+
+---
+
+### typing.start
+
+Signal that the authenticated user started typing in a channel. The server broadcasts a `typing.onUpdate` event to the relevant space or DM participants.
+
+```json
+{
+  "op": "typing.start",
+  "data": { "channelId": "661e9511-f3ac-52e5-b827-557766551111" }
+}
+```
+
+<ResponseField name="channelId" type="string" required>
+  UUID of the channel the user is typing in.
+</ResponseField>
+
+---
+
+## Server events
+
+Events are messages sent from the server to your client. They follow the same JSON envelope format.
+
+### Event reference
+
+| Event | Payload type | Description |
+| ----- | ------------ | ----------- |
+| `pong` | `Ping` | Response to a `ping` command. |
+| `spaces.onCreate` | `SpaceExt` | A space was joined (by you or a bot you own). Subscribe automatically handled. |
+| `spaces.onUpdate` | `SpaceExt` | A space's settings were updated. |
+| `spaces.onDelete` | `SpaceExt` | A space was deleted or you left it. Unsubscribe automatically handled. |
+| `channels.onCreate` | `Channel` | A new channel was created in a space. |
+| `channels.onUpdate` | `Channel` | A channel was updated. |
+| `channels.onDelete` | `Channel` | A channel was deleted. |
+| `messages.onCreate` | `MessageExt` | A new message was sent in a channel or DM. |
+| `messages.onUpdate` | `MessageExt` | A message was edited. |
+| `messages.onDelete` | `MessageKey` | A message was deleted. Contains only IDs, not full content. |
+| `members.onCreate` | `MemberExt` | A user joined a space. |
+| `members.onUpdate` | `MemberExt` | A member's roles changed. |
+| `members.onDelete` | `MemberExt` | A member left or was kicked/banned from a space. |
+| `roles.onCreate` | `Role` | A new role was created in a space. |
+| `roles.onUpdate` | `Role` | A role was updated. |
+| `roles.onDelete` | `Role` | A role was deleted. |
+| `typing.onUpdate` | `TypingUpdate` | A user started typing in a channel. |
+| `users.onUpdate` | `UserExt` | Your own user profile was updated. |
+| `relations.onCreate` | `RelationshipExt` | A new relationship was created (friend request sent or block). |
+| `relations.onUpdate` | `RelationshipExt` | A relationship state changed (e.g. request accepted). |
+| `relations.onDelete` | `ObjectWithId` | A relationship was removed. Contains only the relationship `id`. |
+
+---
+
+## Payload examples
+
+### pong
+
+```json
+{
+  "op": "pong",
+  "data": { "message": "hello" }
+}
+```
+
+### spaces.onCreate / spaces.onUpdate / spaces.onDelete
+
+```json
+{
+  "op": "spaces.onCreate",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Rust Community",
+    "icon": null,
+    "ownerId": "661e9511-f3ac-52e5-b827-557766551111",
+    "handle": "rust-lang.mikoto.io",
+    "visibility": "Public"
+  }
+}
+```
+
+### channels.onCreate / channels.onUpdate / channels.onDelete
+
+```json
+{
+  "op": "channels.onCreate",
+  "data": {
+    "id": "661e9511-f3ac-52e5-b827-557766551111",
+    "spaceId": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "general",
+    "type": "Text",
+    "parentId": null,
+    "order": 0,
+    "lastUpdated": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### messages.onCreate / messages.onUpdate
+
+```json
+{
+  "op": "messages.onCreate",
+  "data": {
+    "id": "772fa622-g4bd-63f6-c938-668877662222",
+    "channelId": "661e9511-f3ac-52e5-b827-557766551111",
+    "content": "Hello, world!",
+    "authorId": "661e9511-f3ac-52e5-b827-557766551111",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "author": {
+      "id": "661e9511-f3ac-52e5-b827-557766551111",
+      "name": "biribiri",
+      "avatar": null
+    },
+    "attachments": []
+  }
+}
+```
+
+### messages.onDelete
+
+The delete event carries only the message and channel IDs, not the full message content.
+
+```json
+{
+  "op": "messages.onDelete",
+  "data": {
+    "messageId": "772fa622-g4bd-63f6-c938-668877662222",
+    "channelId": "661e9511-f3ac-52e5-b827-557766551111"
+  }
+}
+```
+
+### members.onCreate / members.onUpdate / members.onDelete
+
+```json
+{
+  "op": "members.onCreate",
+  "data": {
+    "id": "883gb733-h5ce-74g7-d049-779988773333",
+    "spaceId": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "661e9511-f3ac-52e5-b827-557766551111",
+    "roles": [],
+    "user": {
+      "id": "661e9511-f3ac-52e5-b827-557766551111",
+      "name": "biribiri",
+      "avatar": null
+    }
+  }
+}
+```
+
+### typing.onUpdate
+
+```json
+{
+  "op": "typing.onUpdate",
+  "data": {
+    "channelId": "661e9511-f3ac-52e5-b827-557766551111",
+    "userId": "661e9511-f3ac-52e5-b827-557766551111"
+  }
+}
+```
+
+---
+
+## Space subscription management
+
+When you receive a `spaces.onCreate` event, the server automatically subscribes your connection to that space's event stream so you begin receiving `channels.*`, `messages.*`, `members.*`, and `roles.*` events for that space. Conversely, when you receive `spaces.onDelete`, the server unsubscribes your connection from that space's stream.
+
+You do not need to manually subscribe or unsubscribe to space streams.
+
+---
+
+## JavaScript client example
+
+The `mikoto.js` package provides a typed WebSocket client:
+
+```javascript
+import { WebsocketApi } from '@mikoto-io/mikoto.js';
+
+const ws = new WebsocketApi({
+  url: 'wss://api.mikoto.io/ws',
+  token: accessToken,
+});
+
+ws.on('messages.onCreate', (message) => {
+  console.log('New message:', message.content);
+});
+
+ws.on('typing.onUpdate', ({ channelId, userId }) => {
+  console.log(`User ${userId} is typing in channel ${channelId}`);
+});
+
+// Send a ping
+ws.send('ping', { message: 'hello' });
+
+// Signal typing
+ws.send('typing.start', { channelId: '661e9511-f3ac-52e5-b827-557766551111' });
+```

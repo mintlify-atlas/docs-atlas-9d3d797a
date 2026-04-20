@@ -1,0 +1,230 @@
+---
+title: 'Authentication and Token Management — Mikoto API'
+description: 'Register accounts, log in to obtain tokens, refresh access tokens, and authenticate as a bot using the Mikoto authentication endpoints.'
+---
+
+The Mikoto API uses short-lived JWT access tokens paired with long-lived refresh tokens. You exchange credentials for a `TokenPair` on login or registration, then use the access token in the `Authorization` header. When the access token expires, call `/account/refresh` with your refresh token to get a fresh pair without re-entering credentials. Bots use a separate `/bots/login` endpoint with a bot ID and secret token.
+
+<Warning>
+Store tokens securely. Never log tokens, commit them to version control, or include them in URLs. Refresh tokens are rotated on every use — the old token is invalidated immediately.
+</Warning>
+
+---
+
+## POST /account/register
+
+Create a new user account. Returns a `TokenPair` so the user is immediately authenticated.
+
+**Rate limited** per IP address.
+
+### Request body
+
+<ParamField body="email" type="string" required>
+  Email address for the account. Must be unique.
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Display name for the new user.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Account password. Must meet minimum strength requirements.
+</ParamField>
+
+<ParamField body="captcha" type="string">
+  Captcha response token. Required when the server has captcha enabled.
+</ParamField>
+
+### Response
+
+<ResponseField name="accessToken" type="string" required>
+  Short-lived JWT for authenticating API requests.
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string">
+  Long-lived token used to obtain a new access token via `/account/refresh`.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/account/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "misaka.mikoto@tokiwadai.ac.jp",
+    "name": "biribiri",
+    "password": "correcthorsebatterystaple"
+  }'
+```
+
+```json Response
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "abc123..."
+}
+```
+
+</CodeGroup>
+
+---
+
+## POST /account/login
+
+Authenticate an existing user account. Returns a `TokenPair`.
+
+**Rate limited** per IP address.
+
+### Request body
+
+<ParamField body="email" type="string" required>
+  The account's email address.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account's password.
+</ParamField>
+
+### Response
+
+<ResponseField name="accessToken" type="string" required>
+  Short-lived JWT for authenticating API requests.
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string">
+  Long-lived token used to obtain a new access token.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/account/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "misaka.mikoto@tokiwadai.ac.jp",
+    "password": "correcthorsebatterystaple"
+  }'
+```
+
+```json Response
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "abc123..."
+}
+```
+
+</CodeGroup>
+
+---
+
+## POST /account/refresh
+
+Exchange a valid refresh token for a new `TokenPair`. The old refresh token is invalidated immediately (token rotation).
+
+### Request body
+
+<ParamField body="refreshToken" type="string" required>
+  The refresh token obtained from a previous login or refresh call.
+</ParamField>
+
+### Response
+
+<ResponseField name="accessToken" type="string" required>
+  New short-lived JWT.
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string">
+  New refresh token. The previous refresh token is now invalid.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/account/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "abc123..."}'
+```
+
+```json Response
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "xyz789..."
+}
+```
+
+</CodeGroup>
+
+---
+
+## POST /bots/login
+
+Authenticate as a bot to obtain a JWT access token. Bot access tokens do not come with a refresh token — re-authenticate using the bot credentials when the token expires.
+
+### Request body
+
+<ParamField body="botId" type="string" required>
+  UUID of the bot to authenticate as.
+</ParamField>
+
+<ParamField body="token" type="string" required>
+  The bot's plaintext secret token. This is shown once when the bot is created or when its token is regenerated.
+</ParamField>
+
+### Response
+
+<ResponseField name="accessToken" type="string" required>
+  JWT access token for the bot. Use this in the `Authorization: Bearer` header.
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string">
+  Always `null` for bot authentication.
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/bots/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "botId": "550e8400-e29b-41d4-a716-446655440000",
+    "token": "my-bot-secret-token"
+  }'
+```
+
+```json Response
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": null
+}
+```
+
+</CodeGroup>
+
+---
+
+## Using the access token
+
+Include the access token as a Bearer token on every authenticated request:
+
+```bash
+curl https://api.mikoto.io/users/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+For the WebSocket connection, send an `authenticate` message immediately after the connection opens:
+
+```json
+{
+  "op": "authenticate",
+  "data": { "token": "<access_token>" }
+}
+```
+
+See [WebSocket events](/api/websocket-events) for full connection details.

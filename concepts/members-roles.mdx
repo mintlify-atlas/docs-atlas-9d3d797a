@@ -1,0 +1,197 @@
+---
+title: 'Members, roles, and permissions in Mikoto'
+description: 'Members are users who have joined a space. Roles grant named sets of permissions. Together they control what each member can see and do.'
+---
+
+Every user who joins a space becomes a member of that space. Members can be assigned one or more roles, and each role carries a bitmask of permissions that determine what the member is allowed to do. The space owner always bypasses all permission checks. Mikoto also supports banning members to permanently block re-entry.
+
+## Members
+
+### MemberExt structure
+
+The `MemberExt` object is the full member representation returned by the API. It flattens the underlying `SpaceUser` record and resolves the user profile and role assignments:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Unique ID of the membership record (`SpaceUser.id`). |
+| `spaceId` | `string` (UUID) | The space this membership belongs to. |
+| `userId` | `string` (UUID) | The user's account ID. |
+| `name` | `string \| null` | Optional per-space display name override. |
+| `user` | `UserExt` | Resolved user profile (username, avatar, handle). |
+| `roleIds` | `string[]` | UUIDs of all roles currently assigned to the member. |
+
+### Listing members
+
+Members are paginated using a cursor over the internal membership `id`:
+
+```typescript
+// Via the SDK
+const members = await space.members.list();
+```
+
+The REST endpoint accepts `limit` (1–200, default 100) and `cursor` (a member `id` UUID) query parameters.
+
+### Kicking a member
+
+Members with the `BAN` permission can remove another member from the space. A member cannot kick themselves.
+
+```typescript
+// REST: DELETE /spaces/:spaceId/members/:userId
+```
+
+### Bot members
+
+Bots can be added to a space programmatically by a member with the `MANAGE_BOTS` permission, but only bots owned by the requesting user may be added.
+
+## Roles
+
+### Role structure
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Unique identifier for the role. |
+| `spaceId` | `string` (UUID) | The space this role belongs to. |
+| `name` | `string` | Display name of the role (e.g. `Moderator`, `@everyone`). |
+| `color` | `string \| null` | Optional hex color string (e.g. `#5865F2`). |
+| `permissions` | `string` | Numeric bitmask stored as a string (e.g. `"12"`). |
+| `position` | `number` | Sort order. Lower numbers appear earlier in the list. |
+
+<Note>
+Every space is created with a built-in `@everyone` role at position `-1`. All members implicitly have this role. Set permissions on `@everyone` to define default capabilities for new members.
+</Note>
+
+### Managing roles
+
+Creating, updating, and deleting roles each require the `MANAGE_ROLES` permission.
+
+```typescript
+// Create a role (via REST)
+// POST /spaces/:spaceId/roles  { "name": "Moderator" }
+
+// Update a role — name, color, permissions bitmask, position
+// PATCH /spaces/:spaceId/roles/:roleId
+
+// Delete a role
+// DELETE /spaces/:spaceId/roles/:roleId
+```
+
+### Assigning roles to members
+
+Requires the `ASSIGN_ROLES` permission.
+
+```typescript
+// Add a role to a member
+// POST /spaces/:spaceId/members/:userId/roles/:roleId
+
+// Remove a role from a member
+// DELETE /spaces/:spaceId/members/:userId/roles/:roleId
+```
+
+## Permission system
+
+Permissions are stored as a `u64` bitmask on each role. A member's effective permissions are the bitwise OR of all their assigned roles' `permissions` values. The space owner bypasses all checks unconditionally.
+
+### Permission flags
+
+<AccordionGroup>
+  <Accordion title="ADMIN (bit 0 — value 1)">
+    Grants all administrative permissions. Members with `ADMIN` bypass every individual permission check except those reserved for the space owner (such as deleting the space). Moderator-bypassed checks also accept `ADMIN`.
+  </Accordion>
+  <Accordion title="MODERATOR (bit 1 — value 2)">
+    Allows moderation actions. Checks that call `permissions_or_moderator` accept either `MODERATOR` or `ADMIN`. Used to gate actions like deleting other users' messages and managing invites.
+  </Accordion>
+  <Accordion title="MANAGE_SPACE (bit 2 — value 4)">
+    Allows updating the space's name, icon, handle, and visibility. Also required to start and complete custom-domain handle verification.
+  </Accordion>
+  <Accordion title="MANAGE_CHANNELS (bit 3 — value 8)">
+    Allows creating, updating, and deleting channels within the space.
+  </Accordion>
+  <Accordion title="MANAGE_ROLES (bit 4 — value 16)">
+    Allows creating, updating, and deleting roles. Does not by itself grant the ability to assign roles to members (see `ASSIGN_ROLES`).
+  </Accordion>
+  <Accordion title="ASSIGN_ROLES (bit 5 — value 32)">
+    Allows adding and removing roles from members.
+  </Accordion>
+  <Accordion title="MANAGE_MEMBER_PROFILES (bit 6 — value 64)">
+    Allows editing per-space member profile overrides (e.g. the `name` field on a membership record).
+  </Accordion>
+  <Accordion title="MANAGE_INVITES (bit 7 — value 128)">
+    Allows creating, listing, and deleting invite codes for the space.
+  </Accordion>
+  <Accordion title="MANAGE_EMOJIS (bit 8 — value 256)">
+    Allows managing custom emoji in the space.
+  </Accordion>
+  <Accordion title="MANAGE_MESSAGES (bit 9 — value 512)">
+    Allows deleting any member's messages, not just your own. Required for moderating message content.
+  </Accordion>
+  <Accordion title="MANAGE_BOTS (bit 10 — value 1024)">
+    Allows adding bot users to the space via the members API. Only bots owned by the requesting user may be added.
+  </Accordion>
+  <Accordion title="BAN (bit 11 — value 2048)">
+    Allows banning and unbanning users, and listing the current ban list.
+  </Accordion>
+</AccordionGroup>
+
+### Computing permissions in code
+
+```typescript
+// Example: role with MANAGE_CHANNELS + MANAGE_MESSAGES
+const permissions = (1 << 3) | (1 << 9); // 520
+```
+
+Permissions are passed to the API as a decimal string in `RolePatch.permissions`:
+
+```typescript
+// PATCH /spaces/:spaceId/roles/:roleId
+{
+  "name": "Moderator",
+  "permissions": "2050",   // MODERATOR (2) + BAN (2048)
+  "color": "#ed4245",
+  "position": 1
+}
+```
+
+## Bans
+
+Members with the `BAN` permission can ban any other member. Banning a user removes their membership and prevents them from re-joining the space.
+
+### Ban a user
+
+```typescript
+// POST /spaces/:spaceId/bans
+{
+  "userId": "...",
+  "reason": "Spam"   // optional
+}
+```
+
+The `BanInfo` response includes `id`, `userId`, `spaceId`, `reason`, and a resolved `user` object.
+
+### List bans
+
+```typescript
+// GET /spaces/:spaceId/bans
+```
+
+Returns an array of `BanInfo` objects for all currently banned users.
+
+### Unban a user
+
+```typescript
+// DELETE /spaces/:spaceId/bans/:userId
+```
+
+<Note>
+A user cannot ban themselves, and members that are already banned cannot be banned again.
+</Note>
+
+## Related concepts
+
+<CardGroup cols={2}>
+  <Card title="Spaces" icon="layout-grid" href="/concepts/spaces">
+    Spaces are the containers that members and roles belong to.
+  </Card>
+  <Card title="Channels" icon="hash" href="/concepts/channels">
+    Channel management is gated by the `MANAGE_CHANNELS` permission.
+  </Card>
+</CardGroup>

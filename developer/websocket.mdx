@@ -1,0 +1,196 @@
+---
+title: 'Real-Time WebSocket API for Mikoto Clients'
+description: 'Connect to the Mikoto WebSocket to receive real-time events for spaces, channels, messages, members, roles, and typing indicators from the server.'
+---
+
+Mikoto uses a persistent WebSocket connection to push real-time updates to connected clients. Once established, the server automatically subscribes the connection to events for all spaces the authenticated user belongs to. All messages on the wire are JSON objects with an `op` field (the event or command name) and a `data` field (the payload).
+
+<Note>
+  A valid access token is required to open a WebSocket connection. Obtain one first through the [authentication flow](/developer/authentication) before connecting.
+</Note>
+
+## Connecting
+
+The WebSocket endpoint is served at `/ws` on the same host as the Superego API:
+
+```
+ws://your-server/ws      (development)
+wss://your-server/ws     (production)
+```
+
+### Connection flow
+
+<Steps>
+  <Step title="Open the WebSocket">
+    Connect to `wss://your-server/ws` using any standard WebSocket client.
+  </Step>
+
+  <Step title="Send the authenticate message">
+    The **first message** you send after connecting must be an `authenticate` operation containing your access token. The server waits up to 10 seconds for this message before closing the connection.
+
+    ```json
+    {
+      "op": "authenticate",
+      "data": { "token": "eyJ..." }
+    }
+    ```
+  </Step>
+
+  <Step title="Wait for the ready event">
+    When authentication succeeds the server emits a `ready` event. The connection is now active and the server has subscribed you to all relevant Redis pub/sub channels (your user, your connection, and every space you belong to).
+
+    ```json
+    {
+      "op": "ready",
+      "data": null
+    }
+    ```
+  </Step>
+
+  <Step title="Send commands and receive events">
+    You can now send commands and you will start receiving real-time events.
+  </Step>
+</Steps>
+
+### Connecting with mikoto.js
+
+`MikotoClient` handles the connection, authentication, and automatic reconnection for you:
+
+```typescript
+import { AuthClient, MikotoClient } from '@mikoto-io/mikoto.js';
+
+const auth = new AuthClient({ url: 'https://your-server' });
+await auth.login({ email: 'you@example.com', password: 'hunter2' });
+
+const client = new MikotoClient({ auth, url: 'https://your-server' });
+// client.ws is a WebsocketApi instance ready to use
+```
+
+`WebsocketApi` extends `EventEmitter`, so you can listen to events with `.on(eventName, handler)`.
+
+## Message format
+
+Every message in both directions follows the same envelope:
+
+```json
+{
+  "op": "<operation-name>",
+  "data": { ... }
+}
+```
+
+- **`op`** — The operation name. For commands this is what the server routes on; for events this is what the client routes on.
+- **`data`** — A JSON object whose shape depends on the operation.
+
+## Commands (client → server)
+
+Commands are messages you send to the server.
+
+### `ping`
+
+Sends a ping to the server. The server responds with a `pong` event addressed to your specific connection.
+
+```json
+{ "op": "ping", "data": { "message": "hello" } }
+```
+
+### `typing.start`
+
+Notifies other members that you have started typing in a channel. For space channels, the event is broadcast to all space subscribers. For DM channels, it is sent to both participants.
+
+```json
+{ "op": "typing.start", "data": { "channelId": "<uuid>" } }
+```
+
+**Sending with mikoto.js**
+
+```typescript
+client.ws.send('typing.start', { channelId: '550e8400-...' });
+```
+
+## Events (server → client)
+
+Events are messages the server pushes to you. Listen with `.on(eventName, handler)` in mikoto.js.
+
+### `pong`
+
+Response to a `ping` command. Payload mirrors the ping message.
+
+```json
+{ "op": "pong", "data": { "message": "hello" } }
+```
+
+### Space events
+
+| Event | Trigger |
+|---|---|
+| `spaces.onCreate` | You join a new space (or a bot is installed into one). |
+| `spaces.onUpdate` | A space's name, icon, handle, or visibility changes. |
+| `spaces.onDelete` | A space is deleted or you leave it. |
+
+```typescript
+client.ws.on('spaces.onCreate', (space) => console.log('Joined space', space));
+client.ws.on('spaces.onUpdate', (space) => console.log('Space updated', space));
+client.ws.on('spaces.onDelete', (space) => console.log('Left space', space));
+```
+
+### Channel events
+
+| Event | Trigger |
+|---|---|
+| `channels.onCreate` | A new channel is created in a space you belong to. |
+| `channels.onUpdate` | A channel's name or other properties change. |
+| `channels.onDelete` | A channel is deleted. |
+
+### Message events
+
+| Event | Trigger |
+|---|---|
+| `messages.onCreate` | A new message is posted in any channel in your spaces. |
+| `messages.onUpdate` | A message is edited. |
+| `messages.onDelete` | A message is deleted. The payload contains `messageId` and `channelId`. |
+
+```typescript
+client.ws.on('messages.onCreate', (message) => {
+  console.log('New message in', message.channelId, ':', message.content);
+});
+```
+
+### Member events
+
+| Event | Trigger |
+|---|---|
+| `members.onCreate` | A user or bot joins a space. |
+| `members.onUpdate` | A member's roles change. |
+| `members.onDelete` | A member is kicked or leaves the space. |
+
+### Role events
+
+| Event | Trigger |
+|---|---|
+| `roles.onCreate` | A new role is created in a space. |
+| `roles.onUpdate` | A role's name, color, or permissions change. |
+| `roles.onDelete` | A role is deleted. |
+
+### Typing events
+
+| Event | Trigger |
+|---|---|
+| `typing.onUpdate` | A member has started typing in a channel. |
+
+```typescript
+client.ws.on('typing.onUpdate', ({ channelId, userId }) => {
+  console.log('User', userId, 'is typing in', channelId);
+});
+```
+
+## Subscription model
+
+After authentication, the server subscribes your connection to the following Redis pub/sub channels:
+
+- `all` — Global broadcast channel.
+- `conn:<uuid>` — Your unique connection (used for `pong` responses).
+- `user:<uuid>` — Your user channel (used for DM events and user-level notifications).
+- `space:<uuid>` — One channel per space you belong to (used for all space/channel/message/member/role events).
+
+When you receive a `spaces.onCreate` event the server also subscribes you to the new space's channel automatically. When you receive a `spaces.onDelete` event the server unsubscribes you.

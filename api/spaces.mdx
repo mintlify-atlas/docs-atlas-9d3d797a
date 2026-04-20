@@ -1,0 +1,375 @@
+---
+title: 'Spaces API Reference — Community Spaces in Mikoto'
+description: 'Create, update, and manage Mikoto spaces. Covers listing, joining via invite or handle, notification preferences, and custom domain verification.'
+---
+
+A space is the top-level container for a community — it holds channels, members, roles, and settings. Users join spaces through invite codes or, for public spaces, via their handle. All space endpoints require a valid access token.
+
+---
+
+## GET /spaces
+
+List all spaces the authenticated user is a member of.
+
+### Response
+
+Returns an array of `SpaceExt` objects.
+
+<ResponseField name="[].id" type="string" required>
+  UUID of the space.
+</ResponseField>
+
+<ResponseField name="[].name" type="string" required>
+  Display name of the space.
+</ResponseField>
+
+<ResponseField name="[].icon" type="string">
+  URL of the space's icon image.
+</ResponseField>
+
+<ResponseField name="[].ownerId" type="string">
+  UUID of the user who owns the space.
+</ResponseField>
+
+<ResponseField name="[].handle" type="string">
+  The space's handle (e.g. `myspace.mikoto.io`).
+</ResponseField>
+
+<ResponseField name="[].visibility" type="string">
+  Space visibility. One of `Public` or `Private`.
+</ResponseField>
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/spaces \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## GET /spaces/:spaceId
+
+Get a single space by ID. The authenticated user must be a member.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Response
+
+Returns a `SpaceExt` object (same shape as list items above).
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## POST /spaces
+
+Create a new space. The creator automatically becomes the owner and a member.
+
+### Request body
+
+<ParamField body="name" type="string" required>
+  Display name for the new space.
+</ParamField>
+
+### Response
+
+Returns the newly created `SpaceExt` object.
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Rust Community"}'
+```
+
+```json Response
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Rust Community",
+  "icon": null,
+  "ownerId": "661e9511-f3ac-52e5-b827-557766551111",
+  "handle": null,
+  "visibility": null
+}
+```
+
+</CodeGroup>
+
+---
+
+## PATCH /spaces/:spaceId
+
+Update a space's settings. Requires the `MANAGE_SPACE` permission or space ownership.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space to update.
+</ParamField>
+
+### Request body
+
+All fields are optional. Only provided fields are updated.
+
+<ParamField body="name" type="string">
+  New display name for the space.
+</ParamField>
+
+<ParamField body="icon" type="string">
+  URL of the new icon image.
+</ParamField>
+
+<ParamField body="handle" type="string">
+  New handle for the space. Use a plain username (e.g. `my-space`) to set a default `*.mikoto.io` handle. Pass an empty string to release the current handle. Custom domains require the verification flow.
+</ParamField>
+
+<ParamField body="visibility" type="string">
+  Space visibility. One of `Public` or `Private`.
+</ParamField>
+
+### Response
+
+Returns the updated `SpaceExt` object. A `spaces.onUpdate` WebSocket event is emitted to all members.
+
+### Example
+
+```bash cURL
+curl -X PATCH https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Rust Lang", "visibility": "Public"}'
+```
+
+---
+
+## DELETE /spaces/:spaceId
+
+Permanently delete a space. Only the space owner may delete it.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space to delete.
+</ParamField>
+
+### Response
+
+Returns `{}` on success. A `spaces.onDelete` event is emitted.
+
+### Example
+
+```bash cURL
+curl -X DELETE https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## DELETE /spaces/:spaceId/leave
+
+Leave a space. Emits `members.onDelete` and `spaces.onDelete` WebSocket events.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space to leave.
+</ParamField>
+
+### Response
+
+Returns `{}` on success.
+
+### Example
+
+```bash cURL
+curl -X DELETE https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/leave \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## GET /spaces/join/:invite
+
+Preview a space from an invite code or public handle before joining. Does not require membership.
+
+### Path parameters
+
+<ParamField path="invite" type="string" required>
+  An invite code (e.g. `abc123xyz789`) or a handle prefixed with `@` (e.g. `@rust-lang.mikoto.io`). Handle-based lookup only works for public spaces.
+</ParamField>
+
+### Response
+
+Returns a `SpaceExt` object with the space's public information.
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/spaces/join/abc123xyz789 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## POST /spaces/join/:invite
+
+Join a space using an invite code or a public handle.
+
+### Path parameters
+
+<ParamField path="invite" type="string" required>
+  Invite code or `@handle` string.
+</ParamField>
+
+### Response
+
+Returns the `SpaceExt` object for the joined space. A `members.onCreate` event is emitted to all space members and a `spaces.onCreate` event is emitted to the joining user.
+
+### Example
+
+<CodeGroup>
+
+```bash cURL (invite code)
+curl -X POST https://api.mikoto.io/spaces/join/abc123xyz789 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+```bash cURL (public handle)
+curl -X POST "https://api.mikoto.io/spaces/join/@rust-lang.mikoto.io" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+</CodeGroup>
+
+---
+
+## GET /spaces/notification-preferences
+
+List all notification preferences for the authenticated user across all spaces.
+
+### Response
+
+Returns an array of `NotificationPreference` objects.
+
+<ResponseField name="[].userId" type="string" required>
+  UUID of the user.
+</ResponseField>
+
+<ResponseField name="[].spaceId" type="string" required>
+  UUID of the space.
+</ResponseField>
+
+<ResponseField name="[].level" type="string" required>
+  Notification level. One of `All`, `Mentions`, or `None`.
+</ResponseField>
+
+---
+
+## GET /spaces/:spaceId/notification-preference
+
+Get the notification preference for a specific space.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Response
+
+Returns a `NotificationPreference` object.
+
+---
+
+## POST /spaces/:spaceId/notification-preference
+
+Set the notification preference for a specific space.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Request body
+
+<ParamField body="level" type="string" required>
+  Desired notification level. One of `All`, `Mentions`, or `None`.
+</ParamField>
+
+### Response
+
+Returns the updated `NotificationPreference` object.
+
+### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/notification-preference \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"level": "Mentions"}'
+```
+
+---
+
+## POST /spaces/:spaceId/handle/verify
+
+Start the custom domain verification process for a space. Generates a challenge that must be satisfied before the domain can be assigned.
+
+Requires `MANAGE_SPACE` permission. Only custom domains (not `*.mikoto.io` handles) go through this flow.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Request body
+
+<ParamField body="handle" type="string" required>
+  The custom domain to verify (e.g. `community.example.com`).
+</ParamField>
+
+### Response
+
+Returns a `VerificationChallenge` with the DNS TXT record value and well-known file content you need to publish to prove ownership.
+
+---
+
+## POST /spaces/:spaceId/handle/verify/complete
+
+Complete the custom domain verification. The server checks the DNS TXT record or well-known file, and if successful, atomically replaces the space's handle with the verified custom domain.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Request body
+
+<ParamField body="handle" type="string" required>
+  The same custom domain submitted to the start endpoint.
+</ParamField>
+
+### Response
+
+Returns a `VerificationResult` with a `success` boolean. On success, the space's handle is updated and a `spaces.onUpdate` WebSocket event is emitted.
+
+<Note>
+A `spaces.onUpdate` WebSocket event is emitted to all space members when the handle is successfully updated.
+</Note>

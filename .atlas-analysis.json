@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "Mikoto",
+  "projectType": "saas",
+  "projectName": "Mikoto",
+  "projectDescription": "An open-source community messaging platform with thread-based chat, voice/video, real-time collaborative wikis, and a bot API.",
   "theme": "luma",
-  "colors": {
-    "primary": "#3665e3",
-    "light": "#93acec"
-  },
-  "favicon": "https://media.brand.dev/76e4abc6-6a83-4d71-aa76-0c3ba833e931.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/mikotoIO/mikoto"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/mikotoIO/mikoto"
-    }
-  },
+  "primaryColor": "#3665e3",
+  "lightColor": "#93acec",
+  "darkColor": null,
   "navigation": {
     "tabs": [
       {
@@ -91,5 +79,33 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Thread-based messaging with channels and spaces",
+    "Voice, video, and screen sharing via LiveKit",
+    "Real-time collaborative wiki editing with Y.js",
+    "Bot API with JavaScript and Python SDKs",
+    "Role-based permissions system",
+    "Direct messages and group DMs",
+    "Self-hostable with Docker Compose",
+    "WebSocket-based real-time event system"
+  ],
+  "publicApiSurface": [
+    "MikotoClient (mikoto.js)",
+    "AuthClient / BotAuthClient (mikoto.js)",
+    "SpaceManager: list, join, create",
+    "ChannelManager: list, create, delete, sendMessage",
+    "MessageManager: list, create, edit, delete",
+    "MemberManager, RoleManager, RelationshipManager",
+    "POST /account/login",
+    "POST /account/register",
+    "POST /account/refresh",
+    "GET/POST/PATCH/DELETE /spaces",
+    "GET/POST/PATCH/DELETE /spaces/:spaceId/channels",
+    "GET/POST/PATCH/DELETE /spaces/:spaceId/channels/:channelId/messages",
+    "GET/POST/PATCH/DELETE /bots",
+    "POST /bots/login",
+    "GET/POST/PATCH/DELETE /users",
+    "WebSocket events: spaces.onCreate/onUpdate/onDelete, channels.onCreate/onUpdate/onDelete, messages.onCreate/onUpdate/onDelete, typing.onUpdate"
+  ]
 }

@@ -1,0 +1,243 @@
+---
+title: "Mikoto Bot WebSocket Events Reference"
+description: "Complete reference for all WebSocket events Mikoto bots can subscribe to, including payload types and example handlers using client.ws.on()."
+---
+
+Mikoto bots communicate with the server over a persistent WebSocket connection. After authenticating, the server pushes events to the bot in real time whenever state changes — a new message arrives, a channel is updated, a member joins, and so on. This page documents every event your bot can subscribe to.
+
+Events are consumed using `client.ws.on(eventName, handler)` in mikoto.js. The `WebsocketApi` class is a fully typed `EventEmitter`, so your editor will autocomplete event names and infer the correct payload type for each handler.
+
+```typescript
+import { BotAuthClient, MikotoClient } from '@mikoto-io/mikoto.js';
+
+const client = new MikotoClient({
+  auth: new BotAuthClient({ url: '...', botId: '...', token: '...' }),
+  url: 'https://server.alpha.mikoto.io',
+});
+
+// Subscribe to any event using client.ws.on()
+client.ws.on('messages.onCreate', (msg) => {
+  console.log('New message:', msg.content);
+});
+```
+
+---
+
+## Events by category
+
+<AccordionGroup>
+  <Accordion title="Space events">
+    Space events fire when a space is created, updated, or deleted from the bot's perspective — for example, when the bot is installed into or removed from a space.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `spaces.onCreate` | `SpaceExt` | The bot was added to a space, or a new space was created that the bot belongs to. The payload includes the full space object with channels and roles. |
+    | `spaces.onUpdate` | `SpaceExt` | A space the bot belongs to was updated (e.g. name or settings changed). |
+    | `spaces.onDelete` | `SpaceExt` | The bot was removed from a space, or a space it belonged to was deleted. |
+
+    ```typescript
+    client.ws.on('spaces.onCreate', (space) => {
+      console.log(`Bot added to space: ${space.name} (${space.id})`);
+    });
+
+    client.ws.on('spaces.onUpdate', (space) => {
+      console.log(`Space updated: ${space.name}`);
+    });
+
+    client.ws.on('spaces.onDelete', (space) => {
+      console.log(`Removed from space: ${space.id}`);
+    });
+    ```
+
+    <Note>
+      The SDK's `SpaceManager._subscribe()` already handles these events to maintain `client.spaces` cache state. You can add your own handlers on top without affecting the built-in behavior.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Channel events">
+    Channel events fire when channels are created, modified, or removed within any space the bot belongs to.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `channels.onCreate` | `Channel` | A new channel was created in a space the bot is in. |
+    | `channels.onUpdate` | `Channel` | A channel was updated (e.g. renamed). |
+    | `channels.onDelete` | `Channel` | A channel was deleted. |
+
+    ```typescript
+    client.ws.on('channels.onCreate', (channel) => {
+      console.log(`New channel: #${channel.name} in space ${channel.spaceId}`);
+    });
+
+    client.ws.on('channels.onUpdate', (channel) => {
+      console.log(`Channel renamed to: ${channel.name}`);
+    });
+
+    client.ws.on('channels.onDelete', (channel) => {
+      console.log(`Channel deleted: ${channel.id}`);
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Message events">
+    Message events are the most commonly used events for bots. They fire for every message creation, edit, or deletion in channels the bot can see.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `messages.onCreate` | `MessageExt` | A new message was sent in a channel. |
+    | `messages.onUpdate` | `MessageExt` | An existing message was edited. The full updated message is provided. |
+    | `messages.onDelete` | `MessageKey` | A message was deleted. The payload contains only the message and channel IDs, not the full message content. |
+
+    ```typescript
+    // Respond to commands
+    client.ws.on('messages.onCreate', async (msg) => {
+      if (msg.content === '!ping') {
+        const channel = client.channels.cache.get(msg.channelId);
+        await channel?.sendMessage('pong!');
+      }
+    });
+
+    // Log edits
+    client.ws.on('messages.onUpdate', (msg) => {
+      console.log(`Message ${msg.id} was edited: ${msg.content}`);
+    });
+
+    // Track deletions
+    client.ws.on('messages.onDelete', (key) => {
+      console.log(`Message ${key.id} was deleted from channel ${key.channelId}`);
+    });
+    ```
+
+    <Tip>
+      `messages.onDelete` delivers a `MessageKey` (with `id` and `channelId`), not the full `MessageExt`. If you need the content of deleted messages, maintain your own cache.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Member events">
+    Member events fire when users join or leave spaces the bot belongs to, or when their member profile (nickname, roles) is updated.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `members.onCreate` | `MemberExt` | A user (including the bot itself) joined a space. |
+    | `members.onUpdate` | `MemberExt` | A member's profile was updated (e.g. nickname or role assignment changed). |
+    | `members.onDelete` | `MemberExt` | A member left or was removed from a space. |
+
+    ```typescript
+    client.ws.on('members.onCreate', (member) => {
+      console.log(`${member.user?.name} joined space ${member.spaceId}`);
+    });
+
+    client.ws.on('members.onDelete', (member) => {
+      console.log(`${member.user?.name} left space ${member.spaceId}`);
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Typing events">
+    Typing events let you know when a user starts typing in a channel. Bots can use this for presence-aware features, though most bots do not need to handle it.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `typing.onUpdate` | `TypingUpdate` | A user started typing in a channel. |
+
+    ```typescript
+    client.ws.on('typing.onUpdate', (update) => {
+      console.log(`User ${update.userId} is typing in channel ${update.channelId}`);
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Relationship events">
+    Relationship events concern friend requests, blocks, and DM relationships. Most space-focused bots can ignore these, but bots that handle direct messages will find them useful.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `relations.onCreate` | `RelationshipExt` | A new relationship was created (e.g. a friend request was sent). |
+    | `relations.onUpdate` | `RelationshipExt` | A relationship state changed (e.g. a friend request was accepted). |
+    | `relations.onDelete` | `ObjectWithId` | A relationship was removed. Payload contains only the relationship `id`. |
+
+    ```typescript
+    client.ws.on('relations.onCreate', (rel) => {
+      console.log(`New relationship: ${rel.state}`);
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Role events">
+    Role events fire when roles are created, modified, or deleted within spaces the bot belongs to.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `roles.onCreate` | `Role` | A new role was created in a space. |
+    | `roles.onUpdate` | `Role` | A role's name, color, or permissions were updated. |
+    | `roles.onDelete` | `Role` | A role was deleted from a space. |
+
+    ```typescript
+    client.ws.on('roles.onCreate', (role) => {
+      console.log(`New role created: ${role.name}`);
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="User events">
+    User events fire when a user's global profile (name, avatar, description) changes.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `users.onCreate` | `UserExt` | A new user became visible to the bot (e.g. joined a shared space). |
+    | `users.onUpdate` | `UserExt` | A user updated their profile. |
+    | `users.onDelete` | `ObjectWithId` | A user account was deleted or is no longer visible. |
+
+    ```typescript
+    client.ws.on('users.onUpdate', (user) => {
+      console.log(`User ${user.id} updated their profile`);
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Ping / Pong">
+    The `pong` event is sent by the server in response to a `ping` command from the client. Use it to implement heartbeat logic or connection health checks.
+
+    | Event | Payload type | When it fires |
+    |---|---|---|
+    | `pong` | `Ping` | Server response to a `ping` command sent by the bot. |
+
+    ```typescript
+    // Send a ping
+    client.ws.send('ping', { message: 'heartbeat' });
+
+    // Handle the pong response
+    client.ws.on('pong', (data) => {
+      console.log('Received pong:', data.message);
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Sending commands
+
+In addition to receiving events, bots can send commands to the server over the WebSocket using `client.ws.send()`.
+
+| Command | Payload | Description |
+|---|---|---|
+| `ping` | `Ping` | Sends a heartbeat ping to the server. |
+| `typing.start` | `TypingStart` | Broadcasts a typing indicator to a channel. |
+
+```typescript
+// Trigger a typing indicator before sending a slow response
+client.ws.send('typing.start', { channelId: 'channel-uuid' });
+```
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="mikoto.js Reference" icon="js" href="/bots/mikoto-js">
+    Full API documentation for `MikotoClient`, `WebsocketApi`, and all manager classes.
+  </Card>
+  <Card title="Bot Quickstart" icon="rocket" href="/bots/quickstart">
+    Build and run your first bot in five minutes.
+  </Card>
+</CardGroup>

@@ -1,0 +1,352 @@
+---
+title: 'Users API Reference — Profiles and Relationships'
+description: 'Manage your user profile, set a custom handle, verify custom domains, and manage friend relationships and direct message conversations.'
+---
+
+The Users API lets you read and update your own profile, manage your handle (a globally unique identifier for your account), and work with relationships — friend requests, blocks, and the DM channels that connect friends. All endpoints require authentication.
+
+---
+
+## GET /users/me
+
+Get the authenticated user's profile.
+
+### Response
+
+Returns a `UserExt` object.
+
+<ResponseField name="id" type="string" required>
+  UUID of the user.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Display name.
+</ResponseField>
+
+<ResponseField name="avatar" type="string">
+  URL of the user's avatar image.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  User bio or description.
+</ResponseField>
+
+<ResponseField name="handle" type="string">
+  The user's current handle (e.g. `username.mikoto.io`). May be `null` if no handle is assigned.
+</ResponseField>
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/users/me \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## PATCH /users/me
+
+Update the authenticated user's profile.
+
+### Request body
+
+All fields are optional.
+
+<ParamField body="name" type="string">
+  New display name.
+</ParamField>
+
+<ParamField body="avatar" type="string">
+  URL of the new avatar image.
+</ParamField>
+
+<ParamField body="description" type="string">
+  New bio or description.
+</ParamField>
+
+### Response
+
+Returns the updated `UserExt` object. A `users.onUpdate` WebSocket event is emitted.
+
+### Example
+
+```bash cURL
+curl -X PATCH https://api.mikoto.io/users/me \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "biribiri", "description": "The Railgun"}'
+```
+
+---
+
+## POST /users/me/handle
+
+Set or change your handle. Use a plain username (e.g. `hayley`) to claim a default `*.mikoto.io` handle. Custom domain handles require the verification flow below.
+
+### Request body
+
+<ParamField body="handle" type="string" required>
+  The desired handle. Use a plain username for a `*.mikoto.io` handle (e.g. `hayley` becomes `hayley.mikoto.io`). Custom domains (containing a `.` that is not the `.mikoto.io` suffix) require going through the verification flow.
+</ParamField>
+
+### Response
+
+Returns the updated `UserExt` object. A `users.onUpdate` WebSocket event is emitted.
+
+### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/users/me/handle \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"handle": "hayley"}'
+```
+
+---
+
+## DELETE /users/me/handle
+
+Release your current handle, making it available to others.
+
+### Response
+
+Returns the updated `UserExt` object (with `handle` set to `null`). A `users.onUpdate` WebSocket event is emitted.
+
+---
+
+## POST /users/me/handle/verify
+
+Start the custom domain verification process. Returns a challenge containing the DNS TXT record value and well-known file content that you must publish to prove ownership of the domain.
+
+### Request body
+
+<ParamField body="handle" type="string" required>
+  The custom domain to claim (e.g. `me.example.com`). Must be a real domain — not a `*.mikoto.io` subdomain.
+</ParamField>
+
+### Response
+
+Returns a `VerificationChallenge` object with the proof values to publish.
+
+---
+
+## POST /users/me/handle/verify/complete
+
+Complete the custom domain verification. The server checks that your DNS TXT record or well-known file is in place, and on success atomically replaces your handle with the verified domain.
+
+### Request body
+
+<ParamField body="handle" type="string" required>
+  The same custom domain submitted to the start endpoint.
+</ParamField>
+
+### Response
+
+Returns a `VerificationResult` with a `success` boolean. On success, your handle is updated and a `users.onUpdate` event is emitted.
+
+---
+
+## Relationships
+
+Relationships represent the connection state between two users. Possible states are:
+
+| State | Description |
+| ----- | ----------- |
+| `None` | No relationship exists. |
+| `OutgoingRequest` | You sent a friend request, waiting for acceptance. |
+| `IncomingRequest` | The other user sent you a friend request. |
+| `Friend` | Both users have accepted the relationship. |
+| `Blocked` | You have blocked this user. |
+
+### GET /relations
+
+List all relationships for the authenticated user.
+
+#### Response
+
+Returns an array of `RelationshipExt` objects.
+
+<ResponseField name="[].id" type="string" required>
+  UUID of the relationship record.
+</ResponseField>
+
+<ResponseField name="[].userId" type="string" required>
+  Your user UUID.
+</ResponseField>
+
+<ResponseField name="[].relationId" type="string" required>
+  UUID of the other user.
+</ResponseField>
+
+<ResponseField name="[].state" type="string" required>
+  Relationship state: `None`, `OutgoingRequest`, `IncomingRequest`, `Friend`, or `Blocked`.
+</ResponseField>
+
+<ResponseField name="[].channelId" type="string">
+  UUID of the DM channel associated with this relationship, if one has been opened.
+</ResponseField>
+
+<ResponseField name="[].user" type="object">
+  Profile of the other user.
+</ResponseField>
+
+#### Example
+
+```bash cURL
+curl https://api.mikoto.io/relations \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+### GET /relations/:relationId
+
+Get a single relationship by the other user's ID.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the other user.
+</ParamField>
+
+---
+
+### POST /relations/:relationId/request
+
+Send a friend request to another user. If they have already sent you a request, it is automatically accepted and the relationship transitions to `Friend`.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the user to send the request to.
+</ParamField>
+
+#### Response
+
+Returns the created `RelationshipExt` object. A `relations.onCreate` WebSocket event is emitted to both users.
+
+#### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/relations/661e9511-f3ac-52e5-b827-557766551111/request \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+### POST /relations/:relationId/accept
+
+Accept an incoming friend request.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the user whose request you are accepting.
+</ParamField>
+
+#### Response
+
+Returns the updated `RelationshipExt` (state becomes `Friend`). A `relations.onUpdate` event is emitted to both users.
+
+---
+
+### POST /relations/:relationId/decline
+
+Decline an incoming friend request. The relationship records for both users are deleted.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the user whose request you are declining.
+</ParamField>
+
+#### Response
+
+Returns `{}`. A `relations.onDelete` event is emitted to both users.
+
+---
+
+### DELETE /relations/:relationId
+
+Remove a friend or cancel an outgoing friend request.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the user to unfriend.
+</ParamField>
+
+#### Response
+
+Returns `{}`. The associated DM channel (if any) is also deleted. A `relations.onDelete` event is emitted to both users.
+
+---
+
+### POST /relations/:relationId/block
+
+Block a user. Any existing friendship or pending request is removed, and the associated DM channel is deleted.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the user to block.
+</ParamField>
+
+#### Response
+
+Returns the created `RelationshipExt` (state `Blocked`). A `relations.onCreate` event is emitted to your user stream.
+
+---
+
+### DELETE /relations/:relationId/block
+
+Unblock a user. Removes the block relationship record.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the user to unblock.
+</ParamField>
+
+#### Response
+
+Returns `{}`. A `relations.onDelete` event is emitted.
+
+---
+
+### POST /relations/:relationId/dm
+
+Open or retrieve the DM channel with a friend. You must be friends with the user before a DM channel can be opened. Returns the existing channel if one already exists, or creates a new one.
+
+#### Path parameters
+
+<ParamField path="relationId" type="string" required>
+  UUID of the friend to open DMs with.
+</ParamField>
+
+#### Response
+
+Returns a `Channel` object representing the DM channel. Use the channel's `id` with the [DM messages endpoints](/api/messages#direct-messages) to send and receive messages.
+
+#### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/relations/661e9511-f3ac-52e5-b827-557766551111/dm \
+  -H "Authorization: Bearer <access_token>"
+```
+
+```json Response
+{
+  "id": "883gb733-h5ce-74g7-d049-779988773333",
+  "spaceId": null,
+  "name": "biribiri",
+  "type": "Text",
+  "parentId": null,
+  "order": 0,
+  "lastUpdated": "2024-01-15T10:30:00Z"
+}
+```
+
+</CodeGroup>

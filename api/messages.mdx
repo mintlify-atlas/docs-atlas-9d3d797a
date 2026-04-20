@@ -1,0 +1,334 @@
+---
+title: 'Messages API Reference — Channels and Direct Messages'
+description: 'Send, retrieve, edit, and delete messages in space channels and direct message conversations. Supports attachments and cursor-based pagination.'
+---
+
+Messages are the core of Mikoto's real-time communication. They live in either space channels (scoped to a space and channel) or in DM channels (private conversations between two users who are friends). Both surfaces share the same `MessageExt` response shape and support attachments and cursor-based pagination.
+
+## Cursor-based pagination
+
+Message lists use cursor-based pagination to efficiently fetch older messages. Omit the cursor to get the most recent messages. To load older messages, pass the `id` of the oldest message you have received as the `cursor` parameter in the next request.
+
+```
+GET /spaces/:spaceId/channels/:channelId/messages?limit=50
+→ returns messages [msg_100 ... msg_51]
+
+GET /spaces/:spaceId/channels/:channelId/messages?limit=50&cursor=msg_51
+→ returns messages [msg_50 ... msg_1]
+```
+
+---
+
+## Space channel messages
+
+### GET /spaces/:spaceId/channels/:channelId/messages
+
+List messages in a channel. Messages are returned in descending timestamp order (newest first).
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel.
+</ParamField>
+
+#### Query parameters
+
+<ParamField query="limit" type="number" default="50">
+  Number of messages to return. Clamped between 1 and 100.
+</ParamField>
+
+<ParamField query="cursor" type="string">
+  UUID of the message to paginate before. Returns messages older than this ID.
+</ParamField>
+
+#### Response
+
+Returns an array of `MessageExt` objects.
+
+<ResponseField name="[].id" type="string" required>
+  UUID of the message.
+</ResponseField>
+
+<ResponseField name="[].channelId" type="string" required>
+  UUID of the channel this message belongs to.
+</ResponseField>
+
+<ResponseField name="[].content" type="string" required>
+  Text content of the message.
+</ResponseField>
+
+<ResponseField name="[].authorId" type="string">
+  UUID of the author. May be `null` for system messages.
+</ResponseField>
+
+<ResponseField name="[].timestamp" type="string" required>
+  ISO 8601 timestamp when the message was sent.
+</ResponseField>
+
+<ResponseField name="[].author" type="object">
+  <Expandable title="author fields">
+    <ResponseField name="id" type="string">Author UUID.</ResponseField>
+    <ResponseField name="name" type="string">Author display name.</ResponseField>
+    <ResponseField name="avatar" type="string">Author avatar URL.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="[].attachments" type="object[]">
+  <Expandable title="attachment fields">
+    <ResponseField name="url" type="string" required>CDN URL of the attachment.</ResponseField>
+    <ResponseField name="filename" type="string" required>Original filename.</ResponseField>
+    <ResponseField name="contentType" type="string" required>MIME type.</ResponseField>
+    <ResponseField name="size" type="number" required>File size in bytes.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example
+
+```bash cURL
+curl "https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111/messages?limit=50" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+### POST /spaces/:spaceId/channels/:channelId/messages
+
+Send a message to a channel. The authenticated user must be a member of the space.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel.
+</ParamField>
+
+#### Request body
+
+<ParamField body="content" type="string" required>
+  Text content of the message.
+</ParamField>
+
+<ParamField body="attachments" type="object[]">
+  List of file attachments. Each object describes a file already uploaded to the CDN.
+  <Expandable title="attachment input fields">
+    <ResponseField name="url" type="string" required>CDN URL of the uploaded file.</ResponseField>
+    <ResponseField name="filename" type="string" required>Original filename.</ResponseField>
+    <ResponseField name="contentType" type="string" required>MIME type of the file.</ResponseField>
+    <ResponseField name="size" type="number" required>File size in bytes.</ResponseField>
+  </Expandable>
+</ParamField>
+
+#### Response
+
+Returns the created `MessageExt` object. A `messages.onCreate` WebSocket event is emitted to all space members.
+
+#### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111/messages \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Hello, world!"}'
+```
+
+```json Response
+{
+  "id": "772fa622-g4bd-63f6-c938-668877662222",
+  "channelId": "661e9511-f3ac-52e5-b827-557766551111",
+  "content": "Hello, world!",
+  "authorId": "661e9511-f3ac-52e5-b827-557766551111",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "author": {
+    "id": "661e9511-f3ac-52e5-b827-557766551111",
+    "name": "biribiri",
+    "avatar": null
+  },
+  "attachments": []
+}
+```
+
+</CodeGroup>
+
+---
+
+### PATCH /spaces/:spaceId/channels/:channelId/messages/:messageId
+
+Edit a message. Only the message author can edit their own messages.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel.
+</ParamField>
+
+<ParamField path="messageId" type="string" required>
+  UUID of the message to edit.
+</ParamField>
+
+#### Request body
+
+<ParamField body="content" type="string" required>
+  New text content for the message.
+</ParamField>
+
+#### Response
+
+Returns the updated `MessageExt` object. A `messages.onUpdate` WebSocket event is emitted.
+
+#### Example
+
+```bash cURL
+curl -X PATCH https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111/messages/772fa622-g4bd-63f6-c938-668877662222 \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Hello, world! (edited)"}'
+```
+
+---
+
+### DELETE /spaces/:spaceId/channels/:channelId/messages/:messageId
+
+Delete a message. Message authors can delete their own messages. Users with the `MANAGE_MESSAGES` permission can delete any message.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel.
+</ParamField>
+
+<ParamField path="messageId" type="string" required>
+  UUID of the message to delete.
+</ParamField>
+
+#### Response
+
+Returns `{}` on success. A `messages.onDelete` event is emitted containing the message and channel IDs.
+
+#### Example
+
+```bash cURL
+curl -X DELETE https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111/messages/772fa622-g4bd-63f6-c938-668877662222 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## Direct messages
+
+DM messages work identically to space channel messages, but they are scoped to a private channel between two friends. The DM channel ID is obtained by calling [POST /relations/:relationId/dm](/api/users#post-relations-relationid-dm).
+
+### GET /dm/:channelId/messages
+
+List messages in a DM channel.
+
+#### Path parameters
+
+<ParamField path="channelId" type="string" required>
+  UUID of the DM channel.
+</ParamField>
+
+#### Query parameters
+
+<ParamField query="limit" type="number" default="50">
+  Number of messages to return. Clamped between 1 and 100.
+</ParamField>
+
+<ParamField query="cursor" type="string">
+  UUID of the message to paginate before.
+</ParamField>
+
+#### Response
+
+Returns an array of `MessageExt` objects (same shape as space channel messages).
+
+#### Example
+
+```bash cURL
+curl "https://api.mikoto.io/dm/883gb733-h5ce-74g7-d049-779988773333/messages?limit=50" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+### POST /dm/:channelId/messages
+
+Send a message in a DM channel. The authenticated user must be a participant in the conversation.
+
+#### Path parameters
+
+<ParamField path="channelId" type="string" required>
+  UUID of the DM channel.
+</ParamField>
+
+#### Request body
+
+<ParamField body="content" type="string" required>
+  Text content of the message.
+</ParamField>
+
+<ParamField body="attachments" type="object[]">
+  Optional file attachments (same shape as space channel messages).
+</ParamField>
+
+#### Response
+
+Returns the created `MessageExt` object. A `messages.onCreate` WebSocket event is emitted to both participants.
+
+---
+
+### PATCH /dm/:channelId/messages/:messageId
+
+Edit a DM message. Only the message author can edit.
+
+#### Path parameters
+
+<ParamField path="channelId" type="string" required>
+  UUID of the DM channel.
+</ParamField>
+
+<ParamField path="messageId" type="string" required>
+  UUID of the message to edit.
+</ParamField>
+
+#### Request body
+
+<ParamField body="content" type="string" required>
+  New text content for the message.
+</ParamField>
+
+---
+
+### DELETE /dm/:channelId/messages/:messageId
+
+Delete a DM message. Only the message author can delete.
+
+#### Path parameters
+
+<ParamField path="channelId" type="string" required>
+  UUID of the DM channel.
+</ParamField>
+
+<ParamField path="messageId" type="string" required>
+  UUID of the message to delete.
+</ParamField>
+
+#### Response
+
+Returns `{}` on success. A `messages.onDelete` event is emitted to both participants.

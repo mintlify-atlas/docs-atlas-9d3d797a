@@ -1,80 +1,122 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Get started with Mikoto in minutes"
+description: "Create your account, set up your first space, add channels, and invite members to your Mikoto community — no installation required."
 ---
 
-## Get started in three steps
+Mikoto is available as a hosted service at [platform.mikoto.io](https://platform.mikoto.io). You can have a community space running with channels and members in a few minutes. If you want to run Mikoto on your own infrastructure instead, see [Self-Hosting](/self-hosting).
 
-Get your documentation site running locally and make your first customization.
+<Steps>
+  <Step title="Create an account">
+    Go to [platform.mikoto.io](https://platform.mikoto.io) and register for an account. You'll need to provide an email address and password. After registration, verify your email address using the link sent to your inbox.
+  </Step>
 
-### Step 1: Set up your local environment
+  <Step title="Create your first space">
+    A **space** is the top-level container for your community — similar to a server or guild. After logging in:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    1. Click the **+** icon in the left sidebar.
+    2. Choose **Create a Space**.
+    3. Enter a name for your space.
+    4. Click **Create**.
 
-### Step 2: Deploy your changes
+    Your new space opens immediately and you are its owner.
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Add channels">
+    Channels live inside a space and determine what kind of conversation happens there. Mikoto supports three channel types:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    | Type | Description |
+    | --- | --- |
+    | **Text** | Thread-based messaging with attachments |
+    | **Voice** | Real-time audio/video powered by LiveKit |
+    | **Document** | Live collaborative wiki editing via Y.js |
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    To add a channel:
 
-### Step 3: Go live
+    1. Click **+** next to the channel list in your space.
+    2. Select the channel type.
+    3. Enter a channel name and click **Create**.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    <Tip>Start with one text channel (e.g., `#general`) and one document channel for community notes. You can add more channels at any time.</Tip>
+  </Step>
+
+  <Step title="Invite members">
+    Share your space with others using an invite link:
+
+    1. Open **Space Settings** from the sidebar.
+    2. Navigate to the **Invites** tab.
+    3. Click **Create Invite** to generate a shareable link.
+
+    Anyone with the link can join your space. You can revoke invite links from the same settings panel.
+  </Step>
+
+  <Step title="Create a bot using mikoto.js (optional)">
+    If you want to automate actions or build integrations, Mikoto provides a first-class JavaScript SDK called `mikoto.js`. The example below connects a bot and sends a message to a channel.
+
+    First, create a bot account:
+
+    1. Go to [platform.mikoto.io](https://platform.mikoto.io) and open **Developer Settings**.
+    2. Click **New Bot** and enter a name.
+    3. Copy the **Bot ID** and **Token** shown after creation.
+    4. Install the bot into your space from the **Bots** section of Space Settings.
+
+    Then install the package and connect:
+
+    ```bash
+    npm install @mikoto-io/mikoto.js
+    ```
+
+    ```typescript bot.ts
+    import { BotAuthClient, MikotoClient } from '@mikoto-io/mikoto.js';
+
+    const auth = new BotAuthClient({
+      url: 'https://api.mikoto.io',
+      botId: 'YOUR_BOT_ID',
+      token: 'YOUR_BOT_TOKEN',
+    });
+
+    const client = new MikotoClient({
+      auth,
+      url: 'https://api.mikoto.io',
+    });
+
+    // Listen for new messages and respond to commands
+    client.ws.on('messages.onCreate', async (msg) => {
+      if (msg.content !== '!ping') return;
+
+      const channel = client.channels.cache.get(msg.channelId);
+      if (!channel) return;
+
+      // Send a reply
+      await channel.sendMessage('pong!');
+    });
+    ```
+
+    <Note>
+      `BotAuthClient` authenticates using a bot ID and secret token instead of user credentials. It overrides the `refresh()` method inherited from `AuthClient` to call the `bots.login` endpoint automatically. You do not need to manage tokens manually.
+    </Note>
+
+    The `MikotoClient` exposes two primary managers for navigating your community:
+
+    - `client.spaces` — a `SpaceManager` that lists, joins, and caches `MikotoSpace` objects
+    - `client.channels` — a `ChannelManager` that caches `MikotoChannel` objects across all spaces
+
+    Call `channel.sendMessage(content)` to post a message, or `channel.listMessages(limit, cursor)` to read message history.
+  </Step>
+</Steps>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Spaces & Channels" icon="layer-group" href="/concepts/spaces">
+    Learn how spaces and channels are structured
+  </Card>
+  <Card title="Members & Roles" icon="users" href="/concepts/members-roles">
+    Configure permissions and access control
+  </Card>
+  <Card title="Bot development" icon="robot" href="/bots/overview">
+    Build bots and automations with mikoto.js
+  </Card>
+  <Card title="Self-hosting" icon="server" href="/self-hosting">
+    Deploy Mikoto on your own infrastructure
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

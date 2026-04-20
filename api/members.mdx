@@ -1,0 +1,502 @@
+---
+title: 'Members, Roles, Bans, and Invites — Mikoto API Ref'
+description: 'Manage space membership, roles, bans, and invites. Covers listing members, assigning roles, kicking and banning users, and creating invite links.'
+---
+
+Members are users who belong to a space. The members API covers four related resources: members (users within the space), roles (permission sets that can be assigned to members), bans (blocked users), and invites (shareable join links). All endpoints are scoped under `/spaces/:spaceId/` and require the authenticated user to be a member of that space.
+
+---
+
+## Members
+
+### GET /spaces/:spaceId/members
+
+List members of a space. Supports cursor-based pagination.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+#### Query parameters
+
+<ParamField query="limit" type="number" default="100">
+  Number of members to return. Clamped between 1 and 200.
+</ParamField>
+
+<ParamField query="cursor" type="string">
+  UUID of the last member received. Returns members after this position.
+</ParamField>
+
+#### Response
+
+Returns an array of `MemberExt` objects.
+
+<ResponseField name="[].id" type="string" required>
+  UUID of the space membership record.
+</ResponseField>
+
+<ResponseField name="[].spaceId" type="string" required>
+  UUID of the space.
+</ResponseField>
+
+<ResponseField name="[].userId" type="string" required>
+  UUID of the user.
+</ResponseField>
+
+<ResponseField name="[].roles" type="object[]">
+  Roles assigned to this member.
+  <Expandable title="role fields">
+    <ResponseField name="id" type="string">UUID of the role.</ResponseField>
+    <ResponseField name="name" type="string">Display name of the role.</ResponseField>
+    <ResponseField name="color" type="string">Hex color code for the role.</ResponseField>
+    <ResponseField name="permissions" type="string">Permission bitmask string.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="[].user" type="object">
+  <Expandable title="user fields">
+    <ResponseField name="id" type="string">UUID of the user.</ResponseField>
+    <ResponseField name="name" type="string">Display name.</ResponseField>
+    <ResponseField name="avatar" type="string">Avatar URL.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example
+
+```bash cURL
+curl "https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/members?limit=100" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+### GET /spaces/:spaceId/members/:userId
+
+Get a single member by their user ID.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  UUID of the user to look up.
+</ParamField>
+
+#### Response
+
+Returns a `MemberExt` object.
+
+---
+
+### POST /spaces/:spaceId/members
+
+Add a bot as a member to the space. Only bot users (not regular users) can be added via this endpoint. Requires the `MANAGE_BOTS` permission and the bot must be owned by the authenticated user.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+#### Request body
+
+<ParamField body="userId" type="string" required>
+  UUID of the bot user to add to the space.
+</ParamField>
+
+#### Response
+
+Returns the created `MemberExt` object. A `members.onCreate` WebSocket event is emitted to all space members.
+
+---
+
+### DELETE /spaces/:spaceId/members/:userId
+
+Kick a member from the space. Requires the `BAN` permission. You cannot kick yourself.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  UUID of the user to kick.
+</ParamField>
+
+#### Response
+
+Returns `{}` on success. A `members.onDelete` WebSocket event is emitted.
+
+#### Example
+
+```bash cURL
+curl -X DELETE https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/members/661e9511-f3ac-52e5-b827-557766551111 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## Roles
+
+### POST /spaces/:spaceId/roles
+
+Create a new role in the space. Requires `MANAGE_ROLES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+#### Request body
+
+<ParamField body="name" type="string" required>
+  Display name for the new role.
+</ParamField>
+
+#### Response
+
+Returns the created `Role` object. A `roles.onCreate` WebSocket event is emitted to all space members.
+
+<ResponseField name="id" type="string" required>
+  UUID of the role.
+</ResponseField>
+
+<ResponseField name="spaceId" type="string" required>
+  UUID of the space this role belongs to.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Display name of the role.
+</ResponseField>
+
+<ResponseField name="color" type="string">
+  Hex color code for the role.
+</ResponseField>
+
+<ResponseField name="permissions" type="string" required>
+  Permission bitmask as a string.
+</ResponseField>
+
+<ResponseField name="position" type="number" required>
+  Sort position of the role within the space's role hierarchy.
+</ResponseField>
+
+#### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/roles \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Moderator"}'
+```
+
+---
+
+### PATCH /spaces/:spaceId/roles/:roleId
+
+Update a role's name, color, or permissions. Requires `MANAGE_ROLES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="roleId" type="string" required>
+  UUID of the role to update.
+</ParamField>
+
+#### Request body
+
+<ParamField body="name" type="string">
+  New display name for the role.
+</ParamField>
+
+<ParamField body="color" type="string">
+  New hex color code for the role.
+</ParamField>
+
+<ParamField body="permissions" type="string">
+  New permission bitmask value as a string.
+</ParamField>
+
+#### Response
+
+Returns the updated `Role` object. A `roles.onUpdate` WebSocket event is emitted.
+
+---
+
+### DELETE /spaces/:spaceId/roles/:roleId
+
+Delete a role from the space. Requires `MANAGE_ROLES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="roleId" type="string" required>
+  UUID of the role to delete.
+</ParamField>
+
+#### Response
+
+Returns `{}` on success. A `roles.onDelete` WebSocket event is emitted.
+
+---
+
+### POST /spaces/:spaceId/members/:userId/roles/:roleId
+
+Assign a role to a member. Requires `ASSIGN_ROLES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  UUID of the member.
+</ParamField>
+
+<ParamField path="roleId" type="string" required>
+  UUID of the role to assign. The role must belong to the same space.
+</ParamField>
+
+#### Response
+
+Returns the updated `MemberExt` object. A `members.onUpdate` WebSocket event is emitted.
+
+#### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/members/661e9511-f3ac-52e5-b827-557766551111/roles/772fa622-g4bd-63f6-c938-668877662222 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+### DELETE /spaces/:spaceId/members/:userId/roles/:roleId
+
+Remove a role from a member. Requires `ASSIGN_ROLES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  UUID of the member.
+</ParamField>
+
+<ParamField path="roleId" type="string" required>
+  UUID of the role to remove.
+</ParamField>
+
+#### Response
+
+Returns the updated `MemberExt` object. A `members.onUpdate` WebSocket event is emitted.
+
+---
+
+## Bans
+
+### GET /spaces/:spaceId/bans
+
+List all bans in a space. Requires `BAN` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+#### Response
+
+Returns an array of `BanInfo` objects.
+
+<ResponseField name="[].id" type="string" required>
+  UUID of the ban record.
+</ResponseField>
+
+<ResponseField name="[].userId" type="string" required>
+  UUID of the banned user.
+</ResponseField>
+
+<ResponseField name="[].spaceId" type="string" required>
+  UUID of the space.
+</ResponseField>
+
+<ResponseField name="[].reason" type="string">
+  Optional reason for the ban.
+</ResponseField>
+
+<ResponseField name="[].user" type="object">
+  User object for the banned user, if available.
+</ResponseField>
+
+#### Example
+
+```bash cURL
+curl https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/bans \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+### POST /spaces/:spaceId/bans
+
+Ban a user from the space. Requires `BAN` permission. If the user is currently a member, they are immediately removed. You cannot ban yourself.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+#### Request body
+
+<ParamField body="userId" type="string" required>
+  UUID of the user to ban.
+</ParamField>
+
+<ParamField body="reason" type="string">
+  Optional reason for the ban (stored for moderation logs).
+</ParamField>
+
+#### Response
+
+Returns the created `BanInfo` object.
+
+#### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/bans \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"userId": "661e9511-f3ac-52e5-b827-557766551111", "reason": "Spamming"}'
+```
+
+---
+
+### DELETE /spaces/:spaceId/bans/:userId
+
+Unban a user from the space. Requires `BAN` permission. The user can rejoin via an invite after being unbanned.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  UUID of the user to unban.
+</ParamField>
+
+#### Response
+
+Returns `{}` on success.
+
+---
+
+## Invites
+
+### GET /spaces/:spaceId/invites
+
+List all active invites for a space. Requires `MANAGE_INVITES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+#### Response
+
+Returns an array of `Invite` objects.
+
+<ResponseField name="[].id" type="string" required>
+  The invite code (12-character nanoid string).
+</ResponseField>
+
+<ResponseField name="[].spaceId" type="string" required>
+  UUID of the space this invite grants access to.
+</ResponseField>
+
+<ResponseField name="[].creatorId" type="string" required>
+  UUID of the user who created the invite.
+</ResponseField>
+
+<ResponseField name="[].createdAt" type="string" required>
+  ISO 8601 timestamp when the invite was created.
+</ResponseField>
+
+---
+
+### POST /spaces/:spaceId/invites
+
+Create a new invite for a space. Requires `MANAGE_INVITES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+#### Request body
+
+No fields required. Send an empty JSON object (`{}`).
+
+#### Response
+
+Returns the created `Invite` object.
+
+#### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/invites \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+```json Response
+{
+  "id": "abc123xyz789",
+  "spaceId": "550e8400-e29b-41d4-a716-446655440000",
+  "creatorId": "661e9511-f3ac-52e5-b827-557766551111",
+  "createdAt": "2024-01-15T10:30:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+### DELETE /spaces/:spaceId/invites/:inviteId
+
+Delete an invite. Requires `MANAGE_INVITES` permission.
+
+#### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="inviteId" type="string" required>
+  The invite code to delete.
+</ParamField>
+
+#### Response
+
+Returns `{}` on success.

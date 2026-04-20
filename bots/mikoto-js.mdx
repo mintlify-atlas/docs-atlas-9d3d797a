@@ -1,0 +1,371 @@
+---
+title: "mikoto.js SDK Reference for Bot Developers"
+description: "Complete API reference for @mikoto-io/mikoto.js: BotAuthClient, MikotoClient, SpaceManager, ChannelManager, and all related classes."
+---
+
+`@mikoto-io/mikoto.js` is the official TypeScript/Node.js SDK for Mikoto. It provides reactive manager classes for spaces, channels, messages, and users, along with a typed WebSocket event emitter. This page documents every class and method relevant to bot development.
+
+## Installation
+
+<CodeGroup>
+  ```bash pnpm
+  pnpm add @mikoto-io/mikoto.js
+  ```
+
+  ```bash npm
+  npm install @mikoto-io/mikoto.js
+  ```
+
+  ```bash yarn
+  yarn add @mikoto-io/mikoto.js
+  ```
+</CodeGroup>
+
+---
+
+## BotAuthClient
+
+`BotAuthClient` is the authentication client for bots. It is a subclass of `AuthClient` that overrides `refresh()` to exchange a static bot ID and token for a short-lived JWT access token, without needing a rotating refresh token.
+
+```typescript
+import { BotAuthClient } from '@mikoto-io/mikoto.js';
+
+const auth = new BotAuthClient({
+  url: 'https://server.alpha.mikoto.io',
+  botId: process.env.BOT_ID!,
+  token: process.env.BOT_TOKEN!,
+});
+```
+
+### Constructor options
+
+<ParamField body="url" type="string" required>
+  Base URL of the Mikoto API server (e.g. `https://server.alpha.mikoto.io`). The bot auth endpoint (`/bots/login`) is served from the same host.
+</ParamField>
+
+<ParamField body="botId" type="string" required>
+  The UUID of the bot, returned when the bot was created via `POST /bots`.
+</ParamField>
+
+<ParamField body="token" type="string" required>
+  The secret plaintext token issued when the bot was created (or last regenerated). Treat this like a password — store it in an environment variable, never in source code.
+</ParamField>
+
+### Methods
+
+#### `refresh(): Promise<string>`
+
+Exchanges `botId` + `token` for a fresh JWT access token by calling `POST /bots/login`. Called automatically by `MikotoClient` before each REST request and on WebSocket connect — you typically do not need to call this directly.
+
+---
+
+## MikotoClient
+
+`MikotoClient` is the main entry point to the Mikoto SDK. It manages authentication, REST requests, the WebSocket connection, and all manager instances. The constructor calls `connect()` immediately.
+
+```typescript
+import { BotAuthClient, MikotoClient } from '@mikoto-io/mikoto.js';
+
+const client = new MikotoClient({
+  auth: new BotAuthClient({
+    url: 'https://server.alpha.mikoto.io',
+    botId: process.env.BOT_ID!,
+    token: process.env.BOT_TOKEN!,
+  }),
+  url: 'https://server.alpha.mikoto.io',
+});
+```
+
+### Constructor options
+
+<ParamField body="auth" type="AuthClient" required>
+  An `AuthClient` or `BotAuthClient` instance used to obtain access tokens.
+</ParamField>
+
+<ParamField body="url" type="string" required>
+  Base URL of the Mikoto API server (e.g. `https://server.alpha.mikoto.io`). The WebSocket URL is derived from this automatically by replacing `http(s)` with `ws(s)`.
+</ParamField>
+
+<ParamField body="refreshToken" type="string">
+  Optional initial refresh token (for human user clients). Not used by `BotAuthClient`.
+</ParamField>
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `spaces` | `SpaceManager` | Manages all spaces the bot belongs to. |
+| `channels` | `ChannelManager` | Flat cache of all channels across all spaces. |
+| `user` | `UserManager` | Access the bot's own user profile. |
+| `relationships` | `RelationshipManager` | Manages friend/block relationships (DM contexts). |
+| `ws` | `WebsocketApi` | Typed WebSocket event emitter. Use `client.ws.on(event, handler)` to listen for events. |
+| `rest` | `Api` | Low-level Zodios REST client. Use the manager methods instead where possible. |
+| `auth` | `AuthClient` | The auth client passed to the constructor. |
+
+### Methods
+
+#### `connect(): Promise<void>`
+
+Called automatically by the constructor. Refreshes the access token, opens the WebSocket connection, and registers all built-in event subscriptions (`SpaceManager._subscribe`, `ChannelManager._subscribe`, etc.).
+
+#### `disconnect(): void`
+
+Closes the underlying WebSocket connection.
+
+```typescript
+// Graceful shutdown
+process.on('SIGINT', () => {
+  client.disconnect();
+  process.exit(0);
+});
+```
+
+---
+
+## SpaceManager
+
+`SpaceManager` is accessible as `client.spaces`. It maintains a `Map`-backed cache of all `MikotoSpace` instances the bot belongs to, and subscribes to `spaces.*` WebSocket events.
+
+### Methods
+
+#### `list(): Promise<MikotoSpace[]>`
+
+Fetches all spaces the bot is currently a member of from the REST API and populates the cache.
+
+```typescript
+const spaces = await client.spaces.list();
+console.log(spaces.map((s) => s.name));
+```
+
+#### `join(invite: string): Promise<MikotoSpace>`
+
+Joins a space using an invite code and returns the resulting `MikotoSpace`.
+
+```typescript
+const space = await client.spaces.join('my-invite-code');
+```
+
+#### `static _subscribe(client: MikotoClient): void`
+
+Registers WebSocket handlers for `spaces.onCreate`, `spaces.onUpdate`, and `spaces.onDelete`. Called automatically during `MikotoClient.connect()` — you do not need to call this yourself.
+
+---
+
+## MikotoSpace
+
+Represents a single Mikoto space (server/community). Obtained from `client.spaces.list()`, `client.spaces.join()`, or the `spaces.onCreate` WebSocket event.
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `id` | `string` | UUID of the space. |
+| `name` | `string` | Display name of the space. |
+| `handle` | `string \| null` | Unique handle (slug) of the space. |
+| `channels` | `MikotoChannel[]` | Reactive array of channels in this space. |
+| `members` | `MemberManager` | Manager for space members. |
+| `roles` | `RoleManager` | Manager for space roles. |
+
+### Methods
+
+#### `edit(data: SpaceUpdatePayload): Promise<MikotoSpace>`
+
+Updates the space's name or other settings.
+
+<ParamField body="data" type="SpaceUpdatePayload" required>
+  Object with fields to update on the space (e.g. `{ name: 'New Name' }`).
+</ParamField>
+
+#### `delete(): Promise<void>`
+
+Permanently deletes the space. Requires the bot to have ownership or sufficient permissions.
+
+#### `leave(): Promise<void>`
+
+Removes the bot from the space without deleting it.
+
+#### `createChannel(data: ChannelCreatePayload): Promise<Channel>`
+
+Creates a new channel in this space.
+
+<ParamField body="data" type="ChannelCreatePayload" required>
+  Channel creation payload, including at minimum `{ name: string, type: string }`.
+</ParamField>
+
+```typescript
+const channel = await space.createChannel({ name: 'announcements', type: 'Text' });
+```
+
+#### `listUnread(): Promise<ChannelUnread[]>`
+
+Returns unread channel records for channels in this space (channels with unread messages for the current user).
+
+---
+
+## ChannelManager
+
+`ChannelManager` is accessible as `client.channels`. It maintains a flat cache of all `MikotoChannel` instances across all spaces, and subscribes to `channels.*` WebSocket events.
+
+### `static _subscribe(client: MikotoClient): void`
+
+Registers WebSocket handlers for `channels.onCreate`, `channels.onUpdate`, and `channels.onDelete`. Called automatically during `MikotoClient.connect()`.
+
+---
+
+## MikotoChannel
+
+Represents a channel inside a space (or a DM channel when `spaceId` is `null`). Accessible from `client.channels.cache`, from `MikotoSpace.channels`, or from WebSocket events.
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `id` | `string` | UUID of the channel. |
+| `name` | `string` | Display name of the channel. |
+| `spaceId` | `string \| null` | UUID of the parent space, or `null` for DM channels. |
+| `type` | `string` | Channel type (e.g. `Text`, `Document`, `Voice`). |
+| `space` | `MikotoSpace \| undefined` | The parent space (derived from `spaceId`). |
+| `lastUpdated` | `string \| null` | ISO timestamp of the last message. |
+
+### Methods
+
+#### `edit(data: ChannelPatch): Promise<MikotoChannel>`
+
+Updates the channel's name or other properties.
+
+<ParamField body="data" type="ChannelPatch" required>
+  Partial channel object with the fields to update (e.g. `{ name: 'new-name' }`).
+</ParamField>
+
+#### `delete(): Promise<void>`
+
+Deletes the channel. The channel is also removed from the local cache.
+
+#### `ack(): Promise<void>`
+
+Marks the channel as read (sends an acknowledge request for the bot's member record).
+
+#### `listMessages(limit: number, cursor: string | null): Promise<MikotoMessage[]>`
+
+Fetches a page of messages from the channel.
+
+<ParamField body="limit" type="number" required>
+  Maximum number of messages to return.
+</ParamField>
+
+<ParamField body="cursor" type="string | null" required>
+  Pagination cursor (message ID). Pass `null` to start from the most recent messages.
+</ParamField>
+
+```typescript
+const messages = await channel.listMessages(50, null);
+```
+
+#### `sendMessage(content: string, attachments?: Array<{ url: string; filename: string; contentType: string; size: number }>): Promise<void>`
+
+Sends a message to the channel.
+
+<ParamField body="content" type="string" required>
+  Text content of the message.
+</ParamField>
+
+<ParamField body="attachments" type="array">
+  Optional array of attachment objects. Each must have `url`, `filename`, `contentType`, and `size`.
+</ParamField>
+
+```typescript
+await channel.sendMessage('Hello from the bot!');
+
+// With an attachment
+await channel.sendMessage('Here is a file', [{
+  url: 'https://example.com/file.png',
+  filename: 'file.png',
+  contentType: 'image/png',
+  size: 12345,
+}]);
+```
+
+#### `getDocument(): Promise<Document>`
+
+Fetches the collaborative document associated with this channel (only valid for `Document`-type channels). Throws if called on a DM channel.
+
+---
+
+## MikotoMessage
+
+Represents a single message. Returned by `MikotoChannel.listMessages()` and received in `messages.onCreate` / `messages.onUpdate` WebSocket events.
+
+### Properties
+
+| Property | Type | Description |
+|---|---|---|
+| `id` | `string` | UUID of the message. |
+| `content` | `string` | Text content of the message. |
+| `channelId` | `string` | UUID of the channel this message belongs to. |
+| `authorId` | `string \| null` | UUID of the author, or `null` for system messages. |
+| `channel` | `MikotoChannel` | The parent channel (derived from `channelId`). |
+| `member` | `MikotoMember \| undefined` | The space member who sent the message. |
+
+### Methods
+
+#### `edit(content: string): Promise<void>`
+
+Updates the message content. Works for both space messages and DM messages.
+
+<ParamField body="content" type="string" required>
+  The new text content for the message.
+</ParamField>
+
+```typescript
+client.ws.on('messages.onCreate', async (msg) => {
+  if (msg.content === '!edit-test') {
+    const channel = client.channels.cache.get(msg.channelId)!;
+    const messages = await channel.listMessages(1, null);
+    await messages[0].edit('edited!');
+  }
+});
+```
+
+#### `delete(): Promise<void>`
+
+Deletes the message. Works for both space messages and DM messages.
+
+```typescript
+client.ws.on('messages.onCreate', async (msg) => {
+  if (msg.content.includes('forbidden-word')) {
+    const channel = client.channels.cache.get(msg.channelId)!;
+    const messages = await channel.listMessages(10, null);
+    const target = messages.find((m) => m.id === msg.id);
+    await target?.delete();
+  }
+});
+```
+
+---
+
+## WebsocketApi
+
+`WebsocketApi` is a typed `EventEmitter` accessible as `client.ws`. It wraps the underlying `WebSocket` and emits strongly-typed events matching the Mikoto protocol.
+
+### `on(event, handler)`
+
+Subscribe to a WebSocket event. All event names and their payload types are listed in the [Events Reference](/bots/events).
+
+```typescript
+client.ws.on('messages.onCreate', (msg) => {
+  console.log('New message:', msg.content);
+});
+
+client.ws.on('channels.onCreate', (channel) => {
+  console.log('New channel:', channel.name);
+});
+```
+
+### `send(op, data)`
+
+Send a typed command over the WebSocket. Currently supported commands are `ping` and `typing.start`.
+
+```typescript
+// Send a typing indicator
+client.ws.send('typing.start', { channelId: 'channel-uuid' });
+```

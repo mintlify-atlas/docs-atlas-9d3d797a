@@ -1,0 +1,96 @@
+---
+title: 'Mikoto API Reference — HTTP and WebSocket Overview'
+description: 'Complete reference for the Mikoto HTTP and WebSocket API. Learn about authentication, request formats, error handling, and available resources.'
+---
+
+The Mikoto API is a RESTful HTTP API that powers the Mikoto messaging platform. All requests are made to the base URL and use JSON for both request and response bodies. A persistent WebSocket connection provides real-time events for messages, channels, spaces, and presence.
+
+## Base URL
+
+```
+https://api.mikoto.io
+```
+
+Self-hosted deployments use the URL configured in your server's `API_URL` environment variable. The API server runs on port `3511` by default.
+
+## Request format
+
+All write operations (`POST`, `PATCH`, `PUT`) expect a JSON body. You must include the `Content-Type: application/json` header on every request that has a body.
+
+```bash
+curl -X POST https://api.mikoto.io/spaces \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"name": "My Space"}'
+```
+
+## Authentication
+
+The API uses JWT bearer tokens. Include the token in the `Authorization` header on every authenticated request.
+
+```
+Authorization: Bearer <access_token>
+```
+
+Access tokens are short-lived. Use the refresh token returned at login to obtain a new access token when the current one expires. See the [Authentication](/api/authentication) page for details.
+
+<Warning>
+Never expose your access token or refresh token in client-side code, public repositories, or URLs. Tokens in URLs are logged by proxies and browsers.
+</Warning>
+
+## Rate limiting
+
+Authentication endpoints (`/account/register`, `/account/login`) are rate-limited per IP address to protect against brute-force attacks. If you exceed the limit you will receive a `429 Too Many Requests` response. Back off and retry after a short delay.
+
+## Error responses
+
+All errors return a JSON object with a machine-readable `code` field and a human-readable `message`.
+
+```json
+{
+  "code": "NotFound",
+  "message": "The requested resource was not found."
+}
+```
+
+Common HTTP status codes:
+
+| Status | Meaning |
+| ------ | ------- |
+| `200` | Success |
+| `400` | Bad request — check your request body |
+| `401` | Unauthorized — token missing or invalid |
+| `403` | Forbidden — you lack the required permission |
+| `404` | Not found |
+| `409` | Conflict — e.g. resource already exists |
+| `429` | Rate limited |
+| `500` | Internal server error |
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Register, log in, refresh tokens, and authenticate as a bot.
+  </Card>
+  <Card title="Spaces" icon="house" href="/api/spaces">
+    Create and manage community spaces, invites, and notification preferences.
+  </Card>
+  <Card title="Channels" icon="hash" href="/api/channels">
+    Manage text, voice, and document channels within a space.
+  </Card>
+  <Card title="Messages" icon="message" href="/api/messages">
+    Send, edit, delete, and paginate messages in channels and DMs.
+  </Card>
+  <Card title="Members" icon="users" href="/api/members">
+    Manage space membership, roles, bans, and invites.
+  </Card>
+  <Card title="Bots" icon="robot" href="/api/bots">
+    Create and manage bots, install them into spaces, and authenticate as a bot.
+  </Card>
+  <Card title="Users" icon="user" href="/api/users">
+    Manage your profile, handle, and relationships with other users.
+  </Card>
+  <Card title="WebSocket events" icon="bolt" href="/api/websocket-events">
+    Real-time event reference for the WebSocket connection.
+  </Card>
+</CardGroup>

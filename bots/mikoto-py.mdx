@@ -1,0 +1,157 @@
+---
+title: "mikoto.py Python SDK for Mikoto Bots"
+description: "Reference and examples for mikoto.py, the official Python library for building Mikoto bots with async event handlers and a decorator-based API."
+---
+
+`mikoto.py` is the official Python library for interacting with the Mikoto API. It uses an async, decorator-based programming model similar to popular Python bot frameworks: you register coroutines as event handlers, call `bot.login()`, and the library takes care of connecting to the WebSocket server and dispatching events.
+
+<Warning>
+  mikoto.py is still in early development and is **not ready for production use**. The API surface may change without notice between releases. For production bots, consider using [mikoto.js](/bots/mikoto-js) instead.
+</Warning>
+
+## Installation
+
+<CodeGroup>
+  ```bash pip
+  pip install mikoto
+  ```
+
+  ```bash poetry
+  poetry add mikoto
+  ```
+</CodeGroup>
+
+---
+
+## Quickstart example
+
+The following example, taken directly from the mikoto.py README, creates a bot that replies to `!ping` messages with `pong!` and prints a message when it is fully connected.
+
+```python
+import mikoto
+
+MIKOTO_TOKEN = '<bot token>'
+
+bot = mikoto.MikotoClient()
+
+@bot.messages.on_create
+async def messaging(msg: mikoto.Message):
+    if msg.content == "!ping":
+        await bot.messages.send(msg.channelId, "pong!")
+
+@bot.client.ready
+async def ready():
+    # fires when the bot has fully connected to the API
+    print('Ready!')
+
+bot.login(MIKOTO_TOKEN)
+```
+
+---
+
+## API Reference
+
+### `MikotoClient`
+
+The main client class. Instantiate it without arguments to connect to the default Mikoto servers, or pass custom URLs for self-hosted deployments.
+
+```python
+class MikotoClient:
+    def __init__(
+        self,
+        auth_url="https://auth.alpha.mikoto.io",
+        base_url="https://server.alpha.mikoto.io",
+    ):
+        ...
+```
+
+<ParamField body="auth_url" type="str">
+  Base URL of the Mikoto auth server. Defaults to `https://auth.alpha.mikoto.io`.
+</ParamField>
+
+<ParamField body="base_url" type="str">
+  Base URL of the Mikoto API server. Defaults to `https://server.alpha.mikoto.io`.
+</ParamField>
+
+#### `login(token: str)`
+
+Authenticates the bot and starts the event loop. This is a **blocking call** — place it at the end of your script after all event handlers are registered.
+
+<ParamField body="token" type="str" required>
+  The bot's secret token obtained when the bot was created.
+</ParamField>
+
+```python
+bot.login(MIKOTO_TOKEN)
+```
+
+Internally, `login()` calls `AuthClient.bot_login(token)` to exchange the token for a JWT access token, then connects to the WebSocket server.
+
+---
+
+### `bot.messages.on_create`
+
+A decorator that registers an async function as a handler for new messages. The decorated coroutine receives a `Message` object.
+
+```python
+@bot.messages.on_create
+async def handle_message(msg: mikoto.Message):
+    print(f"New message in {msg.channelId}: {msg.content}")
+```
+
+#### `bot.messages.send(channelId: str, content: str)`
+
+Sends a message to a channel by its ID.
+
+<ParamField body="channelId" type="str" required>
+  UUID of the channel to send the message to.
+</ParamField>
+
+<ParamField body="content" type="str" required>
+  Text content of the message.
+</ParamField>
+
+---
+
+### `bot.client.ready`
+
+A decorator that registers an async function to be called when the bot has fully connected and authenticated.
+
+```python
+@bot.client.ready
+async def on_ready():
+    print('Bot is connected and ready!')
+```
+
+---
+
+## Feature parity with mikoto.js
+
+mikoto.py currently exposes a subset of the functionality available in mikoto.js. The table below gives a rough comparison for common bot use cases.
+
+| Feature | mikoto.js | mikoto.py |
+|---|---|---|
+| Bot authentication | `BotAuthClient` | `MikotoClient.login()` |
+| Receive new messages | `client.ws.on('messages.onCreate', ...)` | `@bot.messages.on_create` |
+| Send messages | `channel.sendMessage(content)` | `bot.messages.send(channelId, content)` |
+| Space/channel events | All `spaces.*`, `channels.*` events | Via `@bot.client.on(event)` (low-level) |
+| Member events | `members.onCreate/onDelete` | Via `@bot.client.on(event)` (low-level) |
+| REST API access | Full via `client.rest` | Limited |
+| Typing events | `typing.onUpdate` | Via `@bot.client.on('messages/onTypingStart')` |
+
+<Note>
+  mikoto.py uses a `/`-separated event naming convention internally (e.g. `messages/onCreate`) rather than the `.`-separated convention used by mikoto.js (e.g. `messages.onCreate`). The underlying WebSocket protocol is the same.
+</Note>
+
+---
+
+## More resources
+
+<CardGroup cols={2}>
+  <Card title="mikoto.js Reference" icon="js" href="/bots/mikoto-js">
+    The TypeScript SDK with full API coverage and production readiness.
+  </Card>
+  <Card title="Events Reference" icon="bolt" href="/bots/events">
+    All WebSocket events available to bots in both SDKs.
+  </Card>
+</CardGroup>

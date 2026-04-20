@@ -1,0 +1,326 @@
+---
+title: 'Bots API Reference — Create and Manage Mikoto Bots'
+description: 'Create and manage bots, regenerate tokens, install bots into spaces, and authenticate as a bot to interact with the Mikoto API programmatically.'
+---
+
+Bots are automated users that can join spaces, send messages, and react to WebSocket events. Each bot is owned by a regular user account and authenticates using a secret token rather than a password. The bot's secret token is displayed once on creation and once per token regeneration — store it securely immediately.
+
+<Warning>
+The plaintext bot token is only returned by `POST /bots` and `POST /bots/:botId/regenerate-token`. After that, it is stored as a bcrypt hash and cannot be recovered. If you lose the token you must regenerate it.
+</Warning>
+
+---
+
+## GET /bots
+
+List all bots owned by the authenticated user.
+
+### Response
+
+Returns an array of `BotInfo` objects.
+
+<ResponseField name="[].id" type="string" required>
+  UUID of the bot (same as the bot's user ID).
+</ResponseField>
+
+<ResponseField name="[].name" type="string" required>
+  Display name of the bot.
+</ResponseField>
+
+<ResponseField name="[].ownerId" type="string" required>
+  UUID of the owning user account.
+</ResponseField>
+
+<ResponseField name="[].visibility" type="string" required>
+  Bot visibility: `Private` or `Public`.
+</ResponseField>
+
+<ResponseField name="[].description" type="string">
+  Optional description of what the bot does.
+</ResponseField>
+
+<ResponseField name="[].avatar" type="string">
+  Avatar URL for the bot's user profile.
+</ResponseField>
+
+<ResponseField name="[].permissions" type="string[]" required>
+  List of permission strings the bot requests.
+</ResponseField>
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/bots \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## POST /bots
+
+Create a new bot. Returns a `BotCreatedResponse` that includes the plaintext secret token.
+
+### Request body
+
+<ParamField body="name" type="string" required>
+  Display name for the bot.
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  UUID of the newly created bot.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Display name of the bot.
+</ResponseField>
+
+<ResponseField name="ownerId" type="string" required>
+  UUID of the owning user account.
+</ResponseField>
+
+<ResponseField name="token" type="string" required>
+  Plaintext secret token. **Store this immediately — it will not be shown again.**
+</ResponseField>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/bots \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-bot"}'
+```
+
+```json Response
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "my-bot",
+  "ownerId": "661e9511-f3ac-52e5-b827-557766551111",
+  "token": "aB3dE5fG7hI9jK1lM2nO4pQ6rS8tU0vW"
+}
+```
+
+</CodeGroup>
+
+---
+
+## POST /bots/login
+
+Exchange bot credentials for a JWT access token. See [Authentication](/api/authentication#post-bots-login) for full details.
+
+### Request body
+
+<ParamField body="botId" type="string" required>
+  UUID of the bot.
+</ParamField>
+
+<ParamField body="token" type="string" required>
+  Plaintext secret token for the bot.
+</ParamField>
+
+### Response
+
+Returns a `TokenPair` with `access_token` set and `refresh_token` as `null`.
+
+---
+
+## GET /bots/:botId
+
+Get details for a specific bot. You must own the bot.
+
+### Path parameters
+
+<ParamField path="botId" type="string" required>
+  UUID of the bot.
+</ParamField>
+
+### Response
+
+Returns a `BotInfo` object (same shape as list items above).
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/bots/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## PATCH /bots/:botId
+
+Update a bot's profile and settings. You must own the bot.
+
+### Path parameters
+
+<ParamField path="botId" type="string" required>
+  UUID of the bot to update.
+</ParamField>
+
+### Request body
+
+All fields are optional.
+
+<ParamField body="name" type="string">
+  New display name for the bot.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Description of what the bot does.
+</ParamField>
+
+<ParamField body="avatar" type="string">
+  URL of the new avatar image.
+</ParamField>
+
+<ParamField body="visibility" type="string">
+  Bot visibility. One of `Private` or `Public`.
+</ParamField>
+
+<ParamField body="permissions" type="string[]">
+  List of permission strings the bot requests from space administrators.
+</ParamField>
+
+### Response
+
+Returns the updated `BotInfo` object.
+
+### Example
+
+```bash cURL
+curl -X PATCH https://api.mikoto.io/bots/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"description": "A bot that posts daily updates.", "visibility": "Public"}'
+```
+
+---
+
+## DELETE /bots/:botId
+
+Permanently delete a bot and its associated user account. You must own the bot.
+
+### Path parameters
+
+<ParamField path="botId" type="string" required>
+  UUID of the bot to delete.
+</ParamField>
+
+### Response
+
+Returns `{}` on success.
+
+---
+
+## POST /bots/:botId/regenerate-token
+
+Regenerate the bot's secret token. The old token is immediately invalidated. Returns a new `BotCreatedResponse` with the new plaintext token.
+
+### Path parameters
+
+<ParamField path="botId" type="string" required>
+  UUID of the bot.
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  UUID of the bot.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Display name of the bot.
+</ResponseField>
+
+<ResponseField name="ownerId" type="string" required>
+  UUID of the owning user.
+</ResponseField>
+
+<ResponseField name="token" type="string" required>
+  New plaintext secret token. Store this immediately.
+</ResponseField>
+
+### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/bots/550e8400-e29b-41d4-a716-446655440000/regenerate-token \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## GET /bots/:botId/spaces
+
+List all spaces the bot is currently a member of. You must own the bot.
+
+### Path parameters
+
+<ParamField path="botId" type="string" required>
+  UUID of the bot.
+</ParamField>
+
+### Response
+
+Returns an array of `BotSpaceInfo` objects.
+
+---
+
+## POST /bots/:botId/install
+
+Install a bot into a space. You must own the bot and be a member of the target space. The bot will appear as a member and start receiving space WebSocket events.
+
+### Path parameters
+
+<ParamField path="botId" type="string" required>
+  UUID of the bot to install.
+</ParamField>
+
+### Request body
+
+<ParamField body="spaceId" type="string" required>
+  UUID of the space to install the bot into.
+</ParamField>
+
+### Response
+
+Returns `{}` on success. A `members.onCreate` WebSocket event is emitted to the space and a `spaces.onCreate` event is emitted to the bot.
+
+### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/bots/550e8400-e29b-41d4-a716-446655440000/install \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"spaceId": "661e9511-f3ac-52e5-b827-557766551111"}'
+```
+
+---
+
+## DELETE /bots/:botId/spaces/:spaceId
+
+Remove a bot from a space. You must own the bot.
+
+### Path parameters
+
+<ParamField path="botId" type="string" required>
+  UUID of the bot.
+</ParamField>
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space to remove the bot from.
+</ParamField>
+
+### Response
+
+Returns `{}` on success. A `members.onDelete` WebSocket event is emitted to the space and a `spaces.onDelete` event is emitted to the bot.
+
+### Example
+
+```bash cURL
+curl -X DELETE https://api.mikoto.io/bots/550e8400-e29b-41d4-a716-446655440000/spaces/661e9511-f3ac-52e5-b827-557766551111 \
+  -H "Authorization: Bearer <access_token>"
+```

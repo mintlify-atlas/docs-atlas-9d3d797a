@@ -1,0 +1,119 @@
+---
+title: 'Spaces: community containers in Mikoto'
+description: 'A space is the top-level community unit in Mikoto. It holds channels, members, and roles, and can be public (joinable by handle) or invite-only.'
+---
+
+A space is the central organizing unit in Mikoto. Every channel, member, and role belongs to a space. Think of a space as a self-contained community: it has a name, an optional icon, an owner, and a set of channels members can chat in. Spaces can be private (invite-only) or public (joinable by anyone who knows the handle).
+
+## Space properties
+
+The `SpaceExt` object returned by the API includes the following fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Unique identifier for the space. |
+| `name` | `string` | Display name of the space. |
+| `icon` | `string \| null` | URL of the space's icon image. |
+| `ownerId` | `string \| null` | UUID of the user who owns the space. |
+| `handle` | `string \| null` | The space's claimed handle (e.g. `rust-lang.mikoto.io` or a verified custom domain). |
+| `visibility` | `"Public" \| "Private" \| null` | Whether the space is publicly discoverable. `null` defaults to private. |
+| `channels` | `Channel[]` | All channels in the space. |
+| `roles` | `Role[]` | All roles defined in the space. |
+| `memberCount` | `number` | Current number of members. |
+
+### Visibility
+
+The `SpaceVisibility` enum has two values:
+
+- **`Private`** — the space is invite-only. Only members with an invite code can join.
+- **`Public`** — anyone can join using the space's `@handle` without an explicit invite code.
+
+### Handles
+
+A handle is a human-readable address for a space. Plain handles (e.g. `rust-lang`) are automatically expanded to `rust-lang.mikoto.io`. Spaces can also claim a verified custom domain (e.g. `chat.rust-lang.org`) by completing a DNS verification challenge through the `/:spaceId/handle/verify` endpoint.
+
+<Note>
+Custom domain handles require DNS ownership verification. Plain `*.mikoto.io` handles can be set directly via the `handle` field in `SpaceUpdatePayload`.
+</Note>
+
+## Joining a space
+
+There are two ways to join a space:
+
+<Steps>
+  <Step title="Via invite code">
+    Any member with the `MANAGE_INVITES` permission can create an invite. Pass the invite code to `POST /spaces/join/:invite` to join.
+
+    ```typescript
+    await client.spaces.join('abc123XYZ789');
+    ```
+  </Step>
+  <Step title="Via @handle (public spaces only)">
+    Public spaces can be joined by prefixing the handle with `@`. The server resolves the handle and verifies that `visibility` is `Public` before adding you as a member.
+
+    ```typescript
+    await client.spaces.join('@rust-lang.mikoto.io');
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+Attempting to join a space via `@handle` when `visibility` is not `Public` returns a `403 Forbidden` error.
+</Warning>
+
+## Space management
+
+### Create a space
+
+```typescript
+const space = await client.rest['spaces.create']({ name: 'My Community' });
+```
+
+The creator automatically becomes the owner and first member of the space.
+
+### Update a space
+
+Members with the `MANAGE_SPACE` permission (or the space owner) can update a space's name, icon, handle, and visibility.
+
+```typescript
+await space.edit({
+  name: 'My Community (Updated)',
+  icon: 'https://cdn.example.com/icon.png',
+  handle: 'my-community',
+  visibility: 'Public',
+});
+```
+
+The `SpaceUpdatePayload` fields are all optional — only the fields you supply are changed.
+
+### Leave a space
+
+```typescript
+await space.leave();
+```
+
+### Delete a space
+
+Only the space owner can delete a space.
+
+```typescript
+await space.delete();
+```
+
+<Warning>
+Deleting a space is permanent and removes all channels, messages, roles, and memberships.
+</Warning>
+
+## Related concepts
+
+<CardGroup cols={3}>
+  <Card title="Channels" icon="hash" href="/concepts/channels">
+    Text, voice, and document channels that live inside a space.
+  </Card>
+  <Card title="Members & roles" icon="users" href="/concepts/members-roles">
+    Who belongs to a space and what they're allowed to do.
+  </Card>
+  <Card title="Messages" icon="message-square" href="/concepts/messages">
+    Content sent in text channels within a space.
+  </Card>
+</CardGroup>

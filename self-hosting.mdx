@@ -1,0 +1,171 @@
+---
+title: "Self-host Mikoto on your own infrastructure"
+description: "Deploy Mikoto on your own server using Docker Compose and the Just task runner. Covers prerequisites, environment configuration, and starting all services."
+---
+
+Mikoto is fully self-hostable. The stack runs as a set of Docker-managed infrastructure services (PostgreSQL, Redis, MinIO, LiveKit) alongside application services you start with the `just` task runner. This guide walks through setting up a local development environment. For production considerations, see the note at the end of this page.
+
+## Prerequisites
+
+Before you begin, install the following tools:
+
+| Tool | Purpose | Install |
+| --- | --- | --- |
+| **Docker** | Runs infrastructure services | [docs.docker.com](https://docs.docker.com/get-docker/) |
+| **Rustup** | Rust toolchain manager (required for the API server) | [rustup.rs](https://rustup.rs/) |
+| **Proto** | Toolchain manager used to install Moon | [moonrepo.dev/proto](https://moonrepo.dev/proto) |
+| **Just** | Task runner for common dev commands | [just.systems](https://just.systems/) |
+
+## Setup
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/mikotoIO/mikoto.git
+    cd mikoto
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Use Proto to install the pinned toolchain versions, then install JavaScript packages with pnpm:
+
+    ```bash
+    proto install
+    pnpm install
+    ```
+
+    `proto install` reads the `.prototools` file in the repository root and installs the exact versions of Node.js, pnpm, and other tools required by the project.
+  </Step>
+
+  <Step title="Configure environment variables">
+    Copy the example environment file and edit the values for your setup:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    The most important variables to review are:
+
+    <CodeGroup>
+
+    ```bash Server configuration
+    # Application environment
+    MIKOTO_ENV=DEV
+    SERVER_PORT=3511
+
+    # Database and cache
+    DATABASE_URL=postgresql://postgres:postgres@localhost:35101/mikoto
+    REDIS_URL=redis://localhost:35102
+
+    # JWT signing — change SECRET before any deployment
+    SECRET=test_secret_here
+    ISSUER=test.mikoto.io
+
+    # Object storage (MinIO)
+    S3_ACCESS_KEY=minio
+    S3_SECRET_KEY=password
+    S3_ENDPOINT=localhost
+    S3_PORT=35103
+    S3_BUCKET=mikoto
+    S3_USE_SSL=false
+    ```
+
+    ```bash Client configuration
+    PORT=3510
+    COLLAB_PORT=3512
+    MEDIASERVER_PORT=3513
+    PUBLIC_MEDIASERVER_URL=http://localhost:3513
+
+    # Handle domain for user handles
+    HANDLE_DOMAIN=mikoto.example
+    ```
+
+    ```bash Voice/video (LiveKit)
+    LIVEKIT_SERVER=ws://localhost:35105
+    LIVEKIT_KEY=devkey
+    LIVEKIT_SECRET=secret1234567890abcdefghijklmnopqrtsuvwxyz
+    ```
+
+    ```bash Mail (MailHog in dev)
+    MAIL_HOST=localhost
+    MAIL_PORT=35109
+    MAIL_SECURE=false
+    MAIL_USER=user
+    MAIL_PASS=password
+    MAIL_FROM=system@mikoto.io
+    ```
+
+    </CodeGroup>
+
+    <Warning>
+      The default `SECRET` value is for local development only. Set a strong, randomly generated secret before exposing any instance to the internet.
+    </Warning>
+  </Step>
+
+  <Step title="Reset and seed the development environment">
+    This command stops any running Docker services, clears existing volumes, starts fresh infrastructure containers, waits for PostgreSQL to be ready, runs all database migrations, and seeds the database with placeholder data:
+
+    ```bash
+    just reset-dev-env
+    ```
+
+    Run this once on first setup. Re-running it destroys all data and starts fresh — useful when you need a clean state.
+
+    <Note>
+      `reset-dev-env` compiles the Rust migration and seed binaries the first time it runs. This may take a few minutes depending on your machine.
+    </Note>
+  </Step>
+
+  <Step title="Start all services">
+    Start the Docker infrastructure services in the background, then start the application services:
+
+    ```bash
+    docker compose up -d
+    just start-dev
+    ```
+
+    `docker compose up -d` brings up PostgreSQL, Redis, MinIO, LiveKit, and Meilisearch. `just start-dev` starts the Mikoto application services (web client, API server, collaboration service, and media server) via Moon.
+
+    Once everything is running, open [http://localhost:3510](http://localhost:3510) in your browser.
+  </Step>
+</Steps>
+
+## Port reference
+
+All Mikoto services use ports in the `351X` or `351XX` range to avoid conflicts with common development tools.
+
+### Application services
+
+| Service | Port | Description |
+| --- | --- | --- |
+| Client | 3510 | Web client |
+| Superego | 3511 | REST + WebSocket API server |
+| Collab | 3512 | Collaborative editing service |
+| MediaServer | 3513 | Media handling service |
+
+### Infrastructure services
+
+| Service | Port(s) | Description |
+| --- | --- | --- |
+| PostgreSQL | 35101 | Primary database |
+| Redis | 35102 | Cache and pub/sub |
+| MinIO | 35103, 35104 | Object storage API and web console |
+| LiveKit | 35105, 35106, 35107 | Real-time audio/video |
+| MailHog | 35108, 35109 | Development mail server (SMTP + web UI) |
+| Meilisearch | 35110 | Full-text search engine |
+
+## Production considerations
+
+The default configuration is optimized for local development and is **not suitable for production** as-is. Before deploying publicly:
+
+- Set a strong random value for `SECRET` (JWT signing key).
+- Replace MinIO credentials (`S3_ACCESS_KEY`, `S3_SECRET_KEY`) with secure values.
+- Replace LiveKit keys (`LIVEKIT_KEY`, `LIVEKIT_SECRET`) with keys generated for your deployment.
+- Set `MIKOTO_ENV=PRODUCTION` and configure `CORS_ORIGIN` and `UPLOAD_SECRET` in the client environment.
+- Use a real SMTP provider in place of MailHog and update the `MAIL_*` variables accordingly.
+- Set `CAPTCHA_PROVIDER` and supply the corresponding `CAPTCHA_SECRET` to protect registration.
+- Use TLS (`S3_USE_SSL=true`) and set `MAIL_SECURE=true` for encrypted transport.
+
+<Note>
+  Mikoto is in active development. Production deployment patterns are evolving. Watch the [GitHub repository](https://github.com/mikotoIO/mikoto) for updates on official deployment guides and Helm charts.
+</Note>

@@ -1,0 +1,158 @@
+---
+title: "Build Your First Mikoto Bot in Minutes"
+description: "Step-by-step guide to creating a Mikoto bot with mikoto.js: install the SDK, authenticate, listen for messages, and respond automatically."
+---
+
+This guide walks you through writing a minimal but fully functional Mikoto bot using the official TypeScript SDK, `@mikoto-io/mikoto.js`. By the end you will have a bot that logs into Mikoto, listens for messages in every space it belongs to, and replies to `!ping` with `pong!`.
+
+<Steps>
+  <Step title="Create a bot account">
+    Before writing any code you need a bot record in Mikoto. Use the REST API with a valid user access token:
+
+    ```bash
+    curl -X POST https://server.alpha.mikoto.io/bots \
+      -H "Authorization: Bearer <your_user_access_token>" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "PingBot"}'
+    ```
+
+    The response contains `id` (your `BOT_ID`) and `token` (your `BOT_TOKEN`). Save the token somewhere safe — it is only shown once. You can regenerate it later with `POST /bots/:botId/regenerate-token`, but the old token will stop working immediately.
+
+    ```json
+    {
+      "id": "01234567-89ab-cdef-0123-456789abcdef",
+      "name": "PingBot",
+      "ownerId": "...",
+      "token": "abc123def456..."
+    }
+    ```
+  </Step>
+
+  <Step title="Install mikoto.js">
+    Install the SDK from npm using your preferred package manager.
+
+    <CodeGroup>
+      ```bash pnpm
+      pnpm add @mikoto-io/mikoto.js
+      ```
+
+      ```bash npm
+      npm install @mikoto-io/mikoto.js
+      ```
+
+      ```bash yarn
+      yarn add @mikoto-io/mikoto.js
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Set up BotAuthClient">
+    `BotAuthClient` handles authentication for bots. Unlike the regular `AuthClient` that uses email/password and rotating refresh tokens, `BotAuthClient` exchanges a static `botId` and `token` for a short-lived JWT on each refresh cycle.
+
+    ```typescript
+    import { BotAuthClient } from '@mikoto-io/mikoto.js';
+
+    const auth = new BotAuthClient({
+      url: 'https://server.alpha.mikoto.io',
+      botId: process.env.BOT_ID!,
+      token: process.env.BOT_TOKEN!,
+    });
+    ```
+
+    Store `BOT_ID` and `BOT_TOKEN` as environment variables — never commit them to version control.
+  </Step>
+
+  <Step title="Create MikotoClient">
+    Pass the `BotAuthClient` to `MikotoClient`. The constructor immediately calls `connect()`, which fetches a fresh access token, opens the WebSocket connection, and registers all built-in event subscriptions.
+
+    ```typescript
+    import { BotAuthClient, MikotoClient } from '@mikoto-io/mikoto.js';
+
+    const auth = new BotAuthClient({
+      url: 'https://server.alpha.mikoto.io',
+      botId: process.env.BOT_ID!,
+      token: process.env.BOT_TOKEN!,
+    });
+
+    const client = new MikotoClient({
+      auth,
+      url: 'https://server.alpha.mikoto.io',
+    });
+    ```
+  </Step>
+
+  <Step title="Listen for messages and respond">
+    Use `client.ws.on()` to subscribe to the `messages.onCreate` WebSocket event. The event payload is a `MessageExt` object. Retrieve the channel from `client.channels` and call `sendMessage()` to reply.
+
+    ```typescript
+    client.ws.on('messages.onCreate', async (msg) => {
+      if (msg.content !== '!ping') return;
+
+      const channel = client.channels.cache.get(msg.channelId);
+      if (!channel) return;
+
+      await channel.sendMessage('pong!');
+    });
+    ```
+
+    <Note>
+      `client.channels.cache` is populated automatically as the bot joins spaces. Events will only arrive for spaces the bot has been installed into.
+    </Note>
+  </Step>
+
+  <Step title="Run the bot">
+    Add a `BOT_ID` and `BOT_TOKEN` to a `.env` file (or export them in your shell), then run the script with Node.js or a TypeScript runner like `tsx`:
+
+    ```bash
+    BOT_ID=your-bot-id BOT_TOKEN=your-bot-token npx tsx bot.ts
+    ```
+
+    The bot process will stay alive listening for WebSocket events. Press `Ctrl+C` to stop it.
+  </Step>
+</Steps>
+
+## Complete example
+
+Below is the full source for a minimal ping bot. Save it as `bot.ts`.
+
+```typescript
+import { BotAuthClient, MikotoClient } from '@mikoto-io/mikoto.js';
+
+const auth = new BotAuthClient({
+  url: 'https://server.alpha.mikoto.io',
+  botId: process.env.BOT_ID!,
+  token: process.env.BOT_TOKEN!,
+});
+
+const client = new MikotoClient({
+  auth,
+  url: 'https://server.alpha.mikoto.io',
+});
+
+client.ws.on('messages.onCreate', async (msg) => {
+  if (msg.content !== '!ping') return;
+
+  const channel = client.channels.cache.get(msg.channelId);
+  if (!channel) return;
+
+  await channel.sendMessage('pong!');
+  console.log(`Replied to ping in channel ${msg.channelId}`);
+});
+
+console.log('Bot is running...');
+```
+
+<Tip>
+  Install the bot into a space by calling `POST /bots/:botId/install` with `{ "spaceId": "..." }`, or use `AuthClient.installBot()` from a management script. The bot will not receive events for spaces it has not been installed into.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="mikoto.js API Reference" icon="book" href="/bots/mikoto-js">
+    Explore every class, method, and option available in the TypeScript SDK.
+  </Card>
+  <Card title="Events Reference" icon="bolt" href="/bots/events">
+    See the full list of WebSocket events your bot can react to.
+  </Card>
+</CardGroup>

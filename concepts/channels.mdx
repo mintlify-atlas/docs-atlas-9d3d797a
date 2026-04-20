@@ -1,0 +1,143 @@
+---
+title: 'Channels: communication lanes inside a space'
+description: 'Channels are where activity happens in a space. Mikoto supports text, voice, and document channels, plus categories to group them.'
+---
+
+Channels are the communication lanes that live inside a space. Every piece of content — a chat message, a voice call, or a collaborative document — happens inside a channel. Administrators create channels and organize them into categories using the channel management API.
+
+## Channel types
+
+The `ChannelType` enum defines the kind of interaction a channel supports:
+
+<Tabs>
+  <Tab title="Text">
+    **`Text`** channels are the standard chat channel. Members send messages that are stored and can be paginated. Text channels also track unread state — Mikoto records the last-acknowledged timestamp so clients can show unread indicators.
+
+    ```typescript
+    await space.createChannel({ name: 'announcements', type: 'Text' });
+    ```
+  </Tab>
+  <Tab title="Voice">
+    **`Voice`** channels host real-time audio and video calls powered by LiveKit. Members join and leave a voice channel session; no message history is stored.
+
+    ```typescript
+    await space.createChannel({ name: 'General Voice', type: 'Voice' });
+    ```
+  </Tab>
+  <Tab title="Document">
+    **`Document`** channels contain a single collaborative document backed by Y.js + Lexical. When a Document channel is created the server automatically provisions an empty `Document` record alongside it.
+
+    ```typescript
+    await space.createChannel({ name: 'Project Wiki', type: 'Document' });
+    ```
+
+    Clients can read and update the document through the `documents.get` and `documents.update` endpoints exposed on the channel instance:
+
+    ```typescript
+    const doc = await channel.getDocument();
+    await channel.updateDocument({ content: '...' });
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+The `ChannelType` enum also includes `Application`, `Thread`, and `Category` variants. `Category` channels act as grouping containers (see [Categories](#categories) below).
+</Note>
+
+## Channel properties
+
+The `Channel` object returned by the API includes the following fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` (UUID) | Unique identifier for the channel. |
+| `spaceId` | `string \| null` | The space this channel belongs to. `null` for DM channels. |
+| `name` | `string` | Display name of the channel. |
+| `type` | `ChannelType` | One of `Text`, `Voice`, `Document`, `Application`, `Thread`, `Category`. |
+| `parentId` | `string \| null` | UUID of the parent category channel, if any. |
+| `order` | `number` | Numeric sort position within the channel list. |
+| `lastUpdated` | `string \| null` | ISO-8601 timestamp of the most recent message. Used for sorting and unread detection. |
+
+## Categories
+
+Categories are `ChannelType.Category` channels that group other channels together. A channel belongs to a category when its `parentId` is set to the category channel's `id`. The server does not enforce hierarchy depth — nesting is handled by the client based on `parentId` relationships.
+
+```typescript
+// Create a category
+const category = await space.createChannel({ name: 'Community', type: 'Category' });
+
+// Create a text channel inside it
+await space.createChannel({
+  name: 'introductions',
+  type: 'Text',
+  parentId: category.id,
+});
+```
+
+## Unread tracking and acknowledgment
+
+Mikoto tracks which messages a member has read using the `ChannelUnread` record, which stores the last-acknowledged `timestamp` per `(channelId, userId)` pair.
+
+**Listing unread channels** returns all `ChannelUnread` records for the current user within a space:
+
+```typescript
+const unreads = await space.listUnread();
+```
+
+**Acknowledging a channel** upserts the `ChannelUnread` record with the current timestamp, marking everything up to that point as read:
+
+```typescript
+await channel.ack();
+```
+
+## Channel management
+
+### Create a channel
+
+Creating a channel requires the `MANAGE_CHANNELS` permission.
+
+```typescript
+const channel = await space.createChannel({
+  name: 'dev-chat',
+  type: 'Text',          // optional, defaults to Text
+  parentId: categoryId,  // optional
+});
+```
+
+The `ChannelCreatePayload` fields:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Display name. |
+| `type` | `ChannelType` | No | Defaults to `Text`. |
+| `parentId` | `string` | No | Parent category UUID. |
+
+### Update a channel
+
+```typescript
+await channel.edit({ name: 'general-chat' });
+```
+
+### Delete a channel
+
+```typescript
+await channel.delete();
+```
+
+<Warning>
+Deleting a channel permanently removes all messages and documents stored in it.
+</Warning>
+
+## Related concepts
+
+<CardGroup cols={3}>
+  <Card title="Spaces" icon="layout-grid" href="/concepts/spaces">
+    The top-level container that owns channels.
+  </Card>
+  <Card title="Messages" icon="message-square" href="/concepts/messages">
+    Content sent inside text channels.
+  </Card>
+  <Card title="Members & roles" icon="users" href="/concepts/members-roles">
+    Permissions that control who can manage channels.
+  </Card>
+</CardGroup>

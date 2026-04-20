@@ -1,0 +1,277 @@
+---
+title: 'Channels API Reference — Text, Voice, and Documents'
+description: 'Create and manage channels within a Mikoto space. Covers listing, creating text, voice, and document channels, and tracking unread state.'
+---
+
+Channels are the messaging primitives within a space. Each channel has a type that determines what kind of content it holds. All channel endpoints are scoped to a space and require the authenticated user to be a member of that space.
+
+## Channel types
+
+| Type | Value | Description |
+| ---- | ----- | ----------- |
+| Text | `Text` | Standard real-time text messaging channel. |
+| Voice | `Voice` | Voice/video channel powered by LiveKit. |
+| Document | `Document` | Collaborative rich-text document (Y.js). |
+
+Channels can be organized into categories using the `parentId` field to nest them under a parent channel.
+
+---
+
+## GET /spaces/:spaceId/channels
+
+List all channels in a space.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Response
+
+Returns an array of `Channel` objects.
+
+<ResponseField name="[].id" type="string" required>
+  UUID of the channel.
+</ResponseField>
+
+<ResponseField name="[].spaceId" type="string" required>
+  UUID of the space this channel belongs to.
+</ResponseField>
+
+<ResponseField name="[].name" type="string" required>
+  Display name of the channel.
+</ResponseField>
+
+<ResponseField name="[].type" type="string" required>
+  Channel type: `Text`, `Voice`, or `Document`.
+</ResponseField>
+
+<ResponseField name="[].parentId" type="string">
+  UUID of the parent channel if this channel is nested under a category.
+</ResponseField>
+
+<ResponseField name="[].order" type="number" required>
+  Sort order position within its parent.
+</ResponseField>
+
+<ResponseField name="[].lastUpdated" type="string">
+  ISO 8601 timestamp of the last message or document update.
+</ResponseField>
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## GET /spaces/:spaceId/channels/:channelId
+
+Get a single channel by ID.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel.
+</ParamField>
+
+### Response
+
+Returns a `Channel` object.
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## POST /spaces/:spaceId/channels
+
+Create a new channel in a space. Requires the `MANAGE_CHANNELS` permission.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Request body
+
+<ParamField body="name" type="string" required>
+  Display name for the channel.
+</ParamField>
+
+<ParamField body="type" type="string">
+  Channel type. One of `Text`, `Voice`, or `Document`. Defaults to `Text`.
+</ParamField>
+
+<ParamField body="parentId" type="string">
+  UUID of the parent channel to nest this channel under.
+</ParamField>
+
+### Response
+
+Returns the newly created `Channel` object. A `channels.onCreate` WebSocket event is emitted to all space members.
+
+<Note>
+When creating a `Document` channel, the server automatically creates an empty document record associated with the channel.
+</Note>
+
+### Example
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "general", "type": "Text"}'
+```
+
+```json Response
+{
+  "id": "661e9511-f3ac-52e5-b827-557766551111",
+  "spaceId": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "general",
+  "type": "Text",
+  "parentId": null,
+  "order": 0,
+  "lastUpdated": "2024-01-15T10:30:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+## PATCH /spaces/:spaceId/channels/:channelId
+
+Update a channel's name or order. Requires the `MANAGE_CHANNELS` permission.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel to update.
+</ParamField>
+
+### Request body
+
+<ParamField body="name" type="string">
+  New display name for the channel.
+</ParamField>
+
+### Response
+
+Returns the updated `Channel` object. A `channels.onUpdate` WebSocket event is emitted to all space members.
+
+### Example
+
+```bash cURL
+curl -X PATCH https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111 \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "announcements"}'
+```
+
+---
+
+## DELETE /spaces/:spaceId/channels/:channelId
+
+Delete a channel from a space. Requires the `MANAGE_CHANNELS` permission.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel to delete.
+</ParamField>
+
+### Response
+
+Returns `{}` on success. A `channels.onDelete` WebSocket event is emitted to all space members.
+
+### Example
+
+```bash cURL
+curl -X DELETE https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111 \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## GET /spaces/:spaceId/channels/unreads
+
+List channels in a space that have unread messages for the authenticated user.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+### Response
+
+Returns an array of `ChannelUnread` objects.
+
+<ResponseField name="[].channelId" type="string" required>
+  UUID of the channel with unread messages.
+</ResponseField>
+
+<ResponseField name="[].userId" type="string" required>
+  UUID of the user.
+</ResponseField>
+
+<ResponseField name="[].lastRead" type="string" required>
+  ISO 8601 timestamp of when the user last acknowledged this channel.
+</ResponseField>
+
+### Example
+
+```bash cURL
+curl https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/unreads \
+  -H "Authorization: Bearer <access_token>"
+```
+
+---
+
+## POST /spaces/:spaceId/channels/:channelId/ack
+
+Acknowledge a channel, marking all messages up to the current time as read.
+
+### Path parameters
+
+<ParamField path="spaceId" type="string" required>
+  UUID of the space.
+</ParamField>
+
+<ParamField path="channelId" type="string" required>
+  UUID of the channel to acknowledge.
+</ParamField>
+
+### Response
+
+Returns `{}` on success.
+
+### Example
+
+```bash cURL
+curl -X POST https://api.mikoto.io/spaces/550e8400-e29b-41d4-a716-446655440000/channels/661e9511-f3ac-52e5-b827-557766551111/ack \
+  -H "Authorization: Bearer <access_token>"
+```
